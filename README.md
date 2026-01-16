@@ -9,6 +9,12 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+### Example of Conventional Commits:
+- feat: add passive drop simulation
+- fix: correct sign error in pendulum torque
+- docs: explain simulation output format
+- chore: add numpy and scipy dependencies
+
 Overview:
 The rover is modelled as a cart-pendulum system with a single equivalent longitudinal force input representing the combined effect of wheels and motors.
 
