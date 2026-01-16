@@ -315,7 +315,8 @@ class CartPendulumAnimator:
     
     def _init_animation(self):
         """Initialise animation elements."""
-        self.cart_patch.set_xy((0, 0))
+        self.cart_patch.set_x(0)
+        self.cart_patch.set_y(0)
         self.wheel_left.center = (0, 0)
         self.wheel_right.center = (0, 0)
         self.pendulum_line.set_data([], [])
@@ -339,7 +340,8 @@ class CartPendulumAnimator:
         # Cart position (centre at x, sitting on ground)
         cart_x = x - self.cart_width / 2
         cart_y = -self.cart_height / 2
-        self.cart_patch.set_xy((cart_x, cart_y))
+        self.cart_patch.set_x(cart_x)
+        self.cart_patch.set_y(cart_y)
         
         # Wheels
         wheel_radius = self.cart_height * 0.25
