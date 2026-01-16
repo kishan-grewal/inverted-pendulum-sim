@@ -1,5 +1,7 @@
 # inverted-pendulum-rover
 
+## TWO ALGORITHMS PID + LQR, DO AT LEAST TASK 2 (RECOVERY FROM STARTING ANGLE)
+
 Overview:
 The rover is modelled as a cart-pendulum system with a single equivalent longitudinal force input representing the combined effect of wheels and motors.
 
