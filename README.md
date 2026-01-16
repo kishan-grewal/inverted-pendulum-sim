@@ -2,6 +2,13 @@
 
 ## TWO ALGORITHMS PID + LQR, DO AT LEAST TASK 2 (RECOVERY FROM STARTING ANGLE)
 
+### Setup:
+```bash
+python -m venv .venv
+.venv/Scripts/activate.ps1
+pip install -r requirements.txt
+```
+
 Overview:
 The rover is modelled as a cart-pendulum system with a single equivalent longitudinal force input representing the combined effect of wheels and motors.
 
