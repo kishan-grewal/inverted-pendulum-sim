@@ -1,4 +1,4 @@
-# inverted-pendulum-cart
+# inverted-cart-pendulum
 
 ## TWO ALGORITHMS PID + LQR, DO AT LEAST TASK 2 (RECOVERY FROM STARTING ANGLE)
 
