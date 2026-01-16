@@ -172,11 +172,12 @@ def plot_from_file(filepath: Path, show: bool = True, save: bool = False):
     fig2 = plot_phase_portrait(states, title_suffix)
     
     if save:
-        output_dir = Path(filepath).parent
+        plots_dir = Path(filepath).parent.parent / "plots"
+        plots_dir.mkdir(parents=True, exist_ok=True)
         stem = Path(filepath).stem
-        fig1.savefig(output_dir / f"{stem}_time_series.png", dpi=150)
-        fig2.savefig(output_dir / f"{stem}_phase_portrait.png", dpi=150)
-        print(f"Saved plots to {output_dir}")
+        fig1.savefig(plots_dir / f"{stem}_time_series.png", dpi=150)
+        fig2.savefig(plots_dir / f"{stem}_phase_portrait.png", dpi=150)
+        print(f"Saved plots to {plots_dir}")
     
     if show:
         plt.show()
