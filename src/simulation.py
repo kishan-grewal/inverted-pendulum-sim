@@ -5,16 +5,41 @@ from pathlib import Path
 from dynamics import state_derivative, get_parameters
 
 
-def simulate(initial_state, t_span, dt=0.01, controller=None):
+def simulate(initial_state, t_span, dt=0.01, controller=None, observer=None):
     t_eval = np.arange(t_span[0], t_span[1], dt)
     
     control_history = []
+    estimated_states = []
+    
+    # Reset observer with initial guess (assume we know initial position/angle, not velocities)
+    if observer is not None:
+        initial_estimate = np.array([initial_state[0], 0.0, initial_state[2], 0.0])
+        observer.reset(initial_estimate)
+    
+    prev_t = t_span[0]
     
     def dynamics(t, state):
+        nonlocal prev_t
+        
+        actual_dt = t - prev_t if t > prev_t else dt
+        prev_t = t
+        
         if controller is None:
             F = 0.0
+            if observer is not None:
+                measurement = np.array([state[0], state[2]])
+                estimated = observer.update(measurement, F, actual_dt)
+                estimated_states.append(estimated)
         else:
-            F = controller.compute(state, dt)
+            if observer is not None:
+                # Controller uses estimated state
+                measurement = np.array([state[0], state[2]])
+                estimated = observer.update(measurement, control_history[-1] if control_history else 0.0, actual_dt)
+                estimated_states.append(estimated)
+                F = controller.compute(estimated, actual_dt)
+            else:
+                # Controller uses true state
+                F = controller.compute(state, actual_dt)
         
         control_history.append(F)
         return state_derivative(t, state, F)
@@ -29,7 +54,16 @@ def simulate(initial_state, t_span, dt=0.01, controller=None):
         atol=1e-10,
     )
     
-    return solution.t, solution.y.T, np.array(control_history)
+    results = {
+        't': solution.t,
+        'states': solution.y.T,
+        'control': np.array(control_history),
+    }
+    
+    if observer is not None:
+        results['estimated_states'] = np.array(estimated_states)
+    
+    return results
 
 
 def save_results(filepath, t, states, params, metadata=None):

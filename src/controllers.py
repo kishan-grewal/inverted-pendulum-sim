@@ -10,9 +10,9 @@ class LQRController:
         
         # Default weights if not provided
         if Q is None:
-            Q = np.diag([10.0, 1.0, 100.0, 10.0])  # [x, x_dot, theta, theta_dot]
+            Q = np.diag([0.1, 0.1, 10.0, 1000.0])  # [x, x_dot, theta, theta_dot]
         if R is None:
-            R = np.array([[1.0]])  # control effort
+            R = np.array([[0.1]])  # control effort
         
         # Compute LQR gain
         K, S, E = control.lqr(A, B, Q, R)
