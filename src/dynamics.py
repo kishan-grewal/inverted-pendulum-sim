@@ -59,6 +59,44 @@ def state_derivative(t, state, F=0.0):
     return np.array([x_dot, x_ddot, theta_dot, theta_ddot])
 
 
+def linearise():
+    """
+    Linearise dynamics about upright equilibrium (theta=0, all velocities=0).
+    Returns A, B matrices for state-space form: x_dot = A @ x + B @ u
+    
+    State: [x, x_dot, theta, theta_dot]
+    Input: F (horizontal force)
+    
+    At theta=0: cos(theta)=1, sin(theta)=theta (small angle), theta_dot^2 terms vanish
+    """
+    # At equilibrium: theta=0, so c=1, s=0, theta_dot=0
+    # Mass matrix determinant at theta=0
+    D0 = M_t * I_pivot - ml ** 2
+    
+    # Linearised equations (derived from Jacobian of state_derivative):
+    #
+    # x_ddot = (I_pivot / D0) * (F - b_x * x_dot) - (ml / D0) * (ml * g * theta - b_theta * theta_dot)
+    # theta_ddot = (M_t / D0) * (ml * g * theta - b_theta * theta_dot) - (ml / D0) * (F - b_x * x_dot)
+    #
+    # Rearranging into A, B form:
+    
+    A = np.array([
+        [0, 1, 0, 0],
+        [0, -I_pivot * b_x / D0, -ml ** 2 * g / D0, ml * b_theta / D0],
+        [0, 0, 0, 1],
+        [0, ml * b_x / D0, M_t * ml * g / D0, -M_t * b_theta / D0],
+    ])
+    
+    B = np.array([
+        [0],
+        [I_pivot / D0],
+        [0],
+        [-ml / D0],
+    ])
+    
+    return A, B
+
+
 def get_parameters():
     return {
         'M': M,
