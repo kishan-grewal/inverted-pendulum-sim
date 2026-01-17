@@ -341,33 +341,3 @@ def animate_from_file(filepath, **kwargs):
 def animate_from_arrays(t, states, title="Cart-Pendulum", **kwargs):
     animator = CartPendulumAnimator(t, states, title=title)
     animator.animate(**kwargs)
-
-
-def main():
-    data_dir = Path(__file__).parent.parent / "data"
-    
-    pos_file = data_dir / "passive_drop_positive_10deg.txt"
-    neg_file = data_dir / "passive_drop_negative_10deg.txt"
-    
-    if not pos_file.exists():
-        print(f"No simulation file found at {pos_file}")
-        print("Run simulation.py first to generate data.")
-        return
-    
-    print("Cart-Pendulum Visualisation")
-    
-    print("\n1. Static plots for +10° drop:")
-    plot_from_file(pos_file, show=False, save=True)
-    
-    print("\n2. Static plots for -10° drop:")
-    plot_from_file(neg_file, show=False, save=True)
-    
-    print("\n3. Animation for +10° drop:")
-    print("   (Close the window to continue)")
-    animate_from_file(pos_file, interval=20, skip_frames=2)
-    
-    print("\nDone.")
-
-
-if __name__ == "__main__":
-    main()
