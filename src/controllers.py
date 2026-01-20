@@ -1,7 +1,7 @@
 import numpy as np
 import control
 
-from dynamics import linearise
+from src.dynamics import linearise
 
 
 class LQRController:

@@ -4,7 +4,7 @@ from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle, Circle, FancyBboxPatch
 from pathlib import Path
 
-from dynamics import get_parameters, L_rod
+from src.dynamics import get_parameters, L_rod
 
 
 # -----------------------------------------------------------------------------

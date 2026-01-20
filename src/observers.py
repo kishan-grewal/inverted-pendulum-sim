@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import place_poles
 
-from dynamics import linearise
+from src.dynamics import linearise
 
 
 class LuenbergerObserver:

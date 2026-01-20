@@ -3,11 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from dynamics import get_parameters
-from controllers import LQRController
-from observers import LuenbergerObserver
-from simulation import simulate, save_results
-from visualisation import animate_from_arrays
+from src.dynamics import get_parameters
+from src.controllers import LQRController
+from src.observers import LuenbergerObserver
+from src.simulation import simulate, save_results
+from src.visualisation import animate_from_arrays
 
 
 FORCE_LIMITS = (-1000.0, 1000.0)

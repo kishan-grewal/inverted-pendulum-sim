@@ -2,7 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from pathlib import Path
 
-from dynamics import state_derivative, get_parameters
+from src.dynamics import state_derivative, get_parameters
 
 
 def simulate(initial_state, t_span, dt=0.01, controller=None, observer=None):

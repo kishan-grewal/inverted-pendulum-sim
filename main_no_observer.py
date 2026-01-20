@@ -2,10 +2,10 @@ import argparse
 import numpy as np
 from pathlib import Path
 
-from dynamics import get_parameters
-from controllers import LQRController
-from simulation import simulate, save_results
-from visualisation import animate_from_arrays
+from src.dynamics import get_parameters
+from src.controllers import LQRController
+from src.simulation import simulate, save_results
+from src.visualisation import animate_from_arrays
 
 
 FORCE_LIMITS = (-50.0, 50.0)
