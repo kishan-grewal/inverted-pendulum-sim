@@ -5,44 +5,43 @@ from pathlib import Path
 from src.dynamics import state_derivative, get_parameters
 
 
-def simulate(initial_state, t_span, dt=0.01, controller=None, observer=None):
+def simulate(initial_state, t_span, dt=0.01, controller=None, enable_air_drag=True):
+    """
+    Simulate cart-pendulum system.
+    
+    Args:
+        initial_state: [x, x_dot, theta, theta_dot]
+        t_span: (t_start, t_end)
+        dt: time step for output [s]
+        controller: controller object with compute(state, dt) method
+        enable_air_drag: if True, include quadratic air drag on pendulum
+    
+    Returns:
+        dict with keys: 't', 'states', 'control'
+    """
     t_eval = np.arange(t_span[0], t_span[1], dt)
     
     control_history = []
-    estimated_states = []
     
-    # Reset observer with initial guess (assume we know initial position/angle, not velocities)
-    if observer is not None:
-        initial_estimate = np.array([initial_state[0], 0.0, initial_state[2], 0.0])
-        observer.reset(initial_estimate)
-    
+    # Track previous time for dt calculation in controller
     prev_t = t_span[0]
+    prev_F = 0.0
     
     def dynamics(t, state):
-        nonlocal prev_t
+        nonlocal prev_t, prev_F
         
         actual_dt = t - prev_t if t > prev_t else dt
         prev_t = t
         
         if controller is None:
             F = 0.0
-            if observer is not None:
-                measurement = np.array([state[0], state[2]])
-                estimated = observer.update(measurement, F, actual_dt)
-                estimated_states.append(estimated)
         else:
-            if observer is not None:
-                # Controller uses estimated state
-                measurement = np.array([state[0], state[2]])
-                estimated = observer.update(measurement, control_history[-1] if control_history else 0.0, actual_dt)
-                estimated_states.append(estimated)
-                F = controller.compute(estimated, actual_dt)
-            else:
-                # Controller uses true state
-                F = controller.compute(state, actual_dt)
+            F = controller.compute(state, actual_dt)
         
+        prev_F = F
         control_history.append(F)
-        return state_derivative(t, state, F)
+        
+        return state_derivative(t, state, F, enable_air_drag=enable_air_drag)
     
     solution = solve_ivp(
         dynamics,
@@ -60,13 +59,11 @@ def simulate(initial_state, t_span, dt=0.01, controller=None, observer=None):
         'control': np.array(control_history),
     }
     
-    if observer is not None:
-        results['estimated_states'] = np.array(estimated_states)
-    
     return results
 
 
 def save_results(filepath, t, states, params, metadata=None):
+    """Save simulation results to text file."""
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     

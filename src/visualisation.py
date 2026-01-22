@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Rectangle, Circle, FancyBboxPatch
+from matplotlib.widgets import Slider, Button
 from pathlib import Path
 
 from src.dynamics import get_parameters, L_rod
@@ -12,6 +13,7 @@ from src.dynamics import get_parameters, L_rod
 # -----------------------------------------------------------------------------
 
 def load_results(filepath):
+    """Load simulation results from text file."""
     filepath = Path(filepath)
     
     t_list = []
@@ -41,6 +43,7 @@ def load_results(filepath):
 
 
 def plot_time_series(t, states, title_suffix=""):
+    """Plot time series of all states."""
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     fig.suptitle(f"Cart-Pendulum Time Series{title_suffix}")
     
@@ -64,8 +67,7 @@ def plot_time_series(t, states, title_suffix=""):
     axes[1, 0].set_xlabel('Time [s]')
     axes[1, 0].set_ylabel('Pendulum angle θ [°]')
     axes[1, 0].set_title('Pendulum Angle')
-    axes[1, 0].axhline(y=180, color='k', linestyle='--', alpha=0.5, label='Hanging equilibrium')
-    axes[1, 0].axhline(y=-180, color='k', linestyle='--', alpha=0.5)
+    axes[1, 0].axhline(y=0, color='g', linestyle='--', alpha=0.5, label='Upright')
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].legend()
     
@@ -82,6 +84,7 @@ def plot_time_series(t, states, title_suffix=""):
 
 
 def plot_phase_portrait(states, title_suffix=""):
+    """Plot phase portraits for cart and pendulum."""
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle(f"Phase Portraits{title_suffix}")
     
@@ -106,9 +109,7 @@ def plot_phase_portrait(states, title_suffix=""):
     axes[1].set_xlabel('Pendulum angle θ [°]')
     axes[1].set_ylabel('Angular velocity θ̇ [°/s]')
     axes[1].set_title('Pendulum Phase Portrait (wrapped to ±180°)')
-    axes[1].axvline(x=0, color='k', linestyle='--', alpha=0.3, label='Upright')
-    axes[1].axvline(x=180, color='k', linestyle=':', alpha=0.3, label='Hanging')
-    axes[1].axvline(x=-180, color='k', linestyle=':', alpha=0.3)
+    axes[1].axvline(x=0, color='g', linestyle='--', alpha=0.3, label='Upright')
     axes[1].grid(True, alpha=0.3)
     axes[1].legend()
     
@@ -117,6 +118,7 @@ def plot_phase_portrait(states, title_suffix=""):
 
 
 def plot_from_file(filepath, show=True, save=False):
+    """Load and plot results from file."""
     t, states, metadata = load_results(filepath)
     
     angle = metadata.get('initial_angle_deg', '?')
@@ -144,13 +146,19 @@ def plot_from_file(filepath, show=True, save=False):
 # -----------------------------------------------------------------------------
 
 class CartPendulumAnimator:
-    def __init__(self, t, states, cart_width=0.3, cart_height=0.15, pendulum_length=None, title="Cart-Pendulum Animation"):
+    """Animator for cart-pendulum system with optional PID gain sliders."""
+    
+    def __init__(self, t, states, cart_width=0.3, cart_height=0.15, 
+                 pendulum_length=None, title="Cart-Pendulum Animation",
+                 controller=None, show_sliders=False):
         self.t = t
         self.states = states
         self.cart_width = cart_width
         self.cart_height = cart_height
         self.pendulum_length = pendulum_length if pendulum_length else L_rod
         self.title = title
+        self.controller = controller
+        self.show_sliders = show_sliders and controller is not None
         
         # Compute axis limits from data
         x_min = np.min(states[:, 0]) - cart_width - self.pendulum_length
@@ -168,13 +176,63 @@ class CartPendulumAnimator:
         self.ax_theta = None
         self.ax_x = None
         self.anim = None
+        
+        # Slider references
+        self.slider_kp = None
+        self.slider_ki = None
+        self.slider_kd = None
     
     def _setup_figure(self):
-        self.fig = plt.figure(figsize=(14, 8))
+        """Create figure with animation and plots."""
+        if self.show_sliders:
+            self.fig = plt.figure(figsize=(16, 10))
+        else:
+            self.fig = plt.figure(figsize=(14, 8))
         self.fig.suptitle(self.title)
         
-        # Main animation axes
-        self.ax_anim = self.fig.add_axes([0.05, 0.15, 0.5, 0.75])
+        # Adjust layout for sliders if needed
+        if self.show_sliders:
+            # Main animation axes
+            self.ax_anim = self.fig.add_axes([0.05, 0.25, 0.45, 0.65])
+            
+            # Theta plot
+            self.ax_theta = self.fig.add_axes([0.58, 0.55, 0.38, 0.35])
+            
+            # X position plot
+            self.ax_x = self.fig.add_axes([0.58, 0.1, 0.38, 0.35])
+            
+            # Slider axes
+            ax_kp = self.fig.add_axes([0.15, 0.15, 0.3, 0.03])
+            ax_ki = self.fig.add_axes([0.15, 0.10, 0.3, 0.03])
+            ax_kd = self.fig.add_axes([0.15, 0.05, 0.3, 0.03])
+            
+            # Get current gains from controller
+            info = self.controller.get_info()
+            current_kp = info.get('Kp', 50.0)
+            current_ki = info.get('Ki', 0.5)
+            current_kd = info.get('Kd', 15.0)
+            
+            # Create sliders
+            self.slider_kp = Slider(ax_kp, 'Kp', 0.0, 200.0, valinit=current_kp, valstep=1.0)
+            self.slider_ki = Slider(ax_ki, 'Ki', 0.0, 10.0, valinit=current_ki, valstep=0.1)
+            self.slider_kd = Slider(ax_kd, 'Kd', 0.0, 50.0, valinit=current_kd, valstep=0.5)
+            
+            # Connect slider callbacks
+            self.slider_kp.on_changed(self._update_gains)
+            self.slider_ki.on_changed(self._update_gains)
+            self.slider_kd.on_changed(self._update_gains)
+            
+            # Add note about sliders
+            self.fig.text(0.05, 0.01, 
+                         "Note: Sliders update controller gains for next simulation run",
+                         fontsize=9, style='italic', alpha=0.7)
+        else:
+            # Standard layout without sliders
+            self.ax_anim = self.fig.add_axes([0.05, 0.15, 0.5, 0.75])
+            self.ax_theta = self.fig.add_axes([0.62, 0.55, 0.35, 0.35])
+            self.ax_x = self.fig.add_axes([0.62, 0.1, 0.35, 0.35])
+        
+        # Configure animation axes
         self.ax_anim.set_xlim(self.xlim)
         self.ax_anim.set_ylim(self.ylim)
         self.ax_anim.set_aspect('equal')
@@ -183,8 +241,7 @@ class CartPendulumAnimator:
         self.ax_anim.grid(True, alpha=0.3)
         self.ax_anim.axhline(y=-self.cart_height / 2, color='brown', linewidth=2)
         
-        # Theta plot
-        self.ax_theta = self.fig.add_axes([0.62, 0.55, 0.35, 0.35])
+        # Configure theta plot
         self.ax_theta.set_xlim(0, self.t[-1])
         theta_deg = np.degrees(self.states[:, 2])
         self.ax_theta.set_ylim(min(theta_deg.min(), -10) - 5, max(theta_deg.max(), 10) + 5)
@@ -194,8 +251,7 @@ class CartPendulumAnimator:
         self.ax_theta.grid(True, alpha=0.3)
         self.ax_theta.axhline(y=0, color='g', linestyle='--', alpha=0.5)
         
-        # X position plot
-        self.ax_x = self.fig.add_axes([0.62, 0.1, 0.35, 0.35])
+        # Configure x position plot
         self.ax_x.set_xlim(0, self.t[-1])
         self.ax_x.set_ylim(self.states[:, 0].min() - 0.1, self.states[:, 0].max() + 0.1)
         self.ax_x.set_xlabel('Time [s]')
@@ -242,7 +298,17 @@ class CartPendulumAnimator:
         self.theta_marker, = self.ax_theta.plot([], [], 'ro', markersize=8)
         self.x_marker, = self.ax_x.plot([], [], 'bo', markersize=8)
     
+    def _update_gains(self, val):
+        """Callback for slider changes."""
+        if self.controller is not None and hasattr(self.controller, 'set_gains'):
+            self.controller.set_gains(
+                Kp=self.slider_kp.val,
+                Ki=self.slider_ki.val,
+                Kd=self.slider_kd.val
+            )
+    
     def _init_animation(self):
+        """Initialize animation elements."""
         self.cart_patch.set_x(0)
         self.cart_patch.set_y(0)
         self.wheel_left.center = (0, 0)
@@ -260,6 +326,7 @@ class CartPendulumAnimator:
                 self.theta_line, self.x_line, self.theta_marker, self.x_marker)
     
     def _update_animation(self, frame):
+        """Update animation for given frame."""
         x = self.states[frame, 0]
         theta = self.states[frame, 2]
         t_current = self.t[frame]
@@ -306,6 +373,7 @@ class CartPendulumAnimator:
                 self.theta_line, self.x_line, self.theta_marker, self.x_marker)
     
     def animate(self, interval=20, skip_frames=1, save_path=None):
+        """Run the animation."""
         self._setup_figure()
         
         frames = range(0, len(self.t), skip_frames)
@@ -329,6 +397,7 @@ class CartPendulumAnimator:
 
 
 def animate_from_file(filepath, **kwargs):
+    """Load results from file and animate."""
     t, states, metadata = load_results(filepath)
     
     angle = metadata.get('initial_angle_deg', '?')
@@ -338,6 +407,10 @@ def animate_from_file(filepath, **kwargs):
     animator.animate(**kwargs)
 
 
-def animate_from_arrays(t, states, title="Cart-Pendulum", **kwargs):
-    animator = CartPendulumAnimator(t, states, title=title)
+def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None, 
+                        show_sliders=False, **kwargs):
+    """Animate from arrays with optional controller for sliders."""
+    animator = CartPendulumAnimator(t, states, title=title, 
+                                     controller=controller, 
+                                     show_sliders=show_sliders)
     animator.animate(**kwargs)
