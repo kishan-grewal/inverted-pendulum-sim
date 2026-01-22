@@ -150,7 +150,8 @@ class CartPendulumAnimator:
     
     def __init__(self, t, states, cart_width=0.3, cart_height=0.15, 
                  pendulum_length=None, title="Cart-Pendulum Animation",
-                 controller=None, show_sliders=False):
+                 controller=None, show_sliders=False,
+                 initial_state=None, t_span=None, enable_air_drag=True):
         self.t = t
         self.states = states
         self.cart_width = cart_width
@@ -160,16 +161,14 @@ class CartPendulumAnimator:
         self.controller = controller
         self.show_sliders = show_sliders and controller is not None
         
-        # Compute axis limits from data
-        x_min = np.min(states[:, 0]) - cart_width - self.pendulum_length
-        x_max = np.max(states[:, 0]) + cart_width + self.pendulum_length
-        y_min = -self.pendulum_length - cart_height
-        y_max = self.pendulum_length + cart_height
+        # Store simulation parameters for re-running
+        self.initial_state = initial_state
+        self.t_span = t_span
+        self.enable_air_drag = enable_air_drag
         
-        x_padding = (x_max - x_min) * 0.1
-        y_padding = (y_max - y_min) * 0.1
-        self.xlim = (x_min - x_padding, x_max + x_padding)
-        self.ylim = (y_min - y_padding, y_max + y_padding)
+        # Current frame index
+        self.current_frame = 0
+        self.skip_frames = 1
         
         self.fig = None
         self.ax_anim = None
@@ -182,8 +181,22 @@ class CartPendulumAnimator:
         self.slider_ki = None
         self.slider_kd = None
     
+    def _compute_axis_limits(self):
+        """Compute axis limits from current data."""
+        x_min = np.min(self.states[:, 0]) - self.cart_width - self.pendulum_length
+        x_max = np.max(self.states[:, 0]) + self.cart_width + self.pendulum_length
+        y_min = -self.pendulum_length - self.cart_height
+        y_max = self.pendulum_length + self.cart_height
+        
+        x_padding = (x_max - x_min) * 0.1
+        y_padding = (y_max - y_min) * 0.1
+        self.xlim = (x_min - x_padding, x_max + x_padding)
+        self.ylim = (y_min - y_padding, y_max + y_padding)
+    
     def _setup_figure(self):
         """Create figure with animation and plots."""
+        self._compute_axis_limits()
+        
         if self.show_sliders:
             self.fig = plt.figure(figsize=(16, 10))
         else:
@@ -209,8 +222,8 @@ class CartPendulumAnimator:
             # Get current gains from controller
             info = self.controller.get_info()
             current_kp = info.get('Kp', 50.0)
-            current_ki = info.get('Ki', 0.5)
-            current_kd = info.get('Kd', 15.0)
+            current_ki = info.get('Ki', 0.0)
+            current_kd = info.get('Kd', 3.0)
             
             # Create sliders
             self.slider_kp = Slider(ax_kp, 'Kp', 0.0, 200.0, valinit=current_kp, valstep=1.0)
@@ -218,13 +231,13 @@ class CartPendulumAnimator:
             self.slider_kd = Slider(ax_kd, 'Kd', 0.0, 50.0, valinit=current_kd, valstep=0.5)
             
             # Connect slider callbacks
-            self.slider_kp.on_changed(self._update_gains)
-            self.slider_ki.on_changed(self._update_gains)
-            self.slider_kd.on_changed(self._update_gains)
+            self.slider_kp.on_changed(self._on_slider_change)
+            self.slider_ki.on_changed(self._on_slider_change)
+            self.slider_kd.on_changed(self._on_slider_change)
             
             # Add note about sliders
             self.fig.text(0.05, 0.01, 
-                         "Note: Sliders update controller gains for next simulation run",
+                         "Adjust sliders to re-run simulation with new gains",
                          fontsize=9, style='italic', alpha=0.7)
         else:
             # Standard layout without sliders
@@ -232,6 +245,11 @@ class CartPendulumAnimator:
             self.ax_theta = self.fig.add_axes([0.62, 0.55, 0.35, 0.35])
             self.ax_x = self.fig.add_axes([0.62, 0.1, 0.35, 0.35])
         
+        self._setup_axes()
+        self._setup_artists()
+    
+    def _setup_axes(self):
+        """Configure all axes."""
         # Configure animation axes
         self.ax_anim.set_xlim(self.xlim)
         self.ax_anim.set_ylim(self.ylim)
@@ -258,7 +276,9 @@ class CartPendulumAnimator:
         self.ax_x.set_ylabel('x [m]')
         self.ax_x.set_title('Cart Position')
         self.ax_x.grid(True, alpha=0.3)
-        
+    
+    def _setup_artists(self):
+        """Create all plot artists."""
         # Cart
         self.cart_patch = FancyBboxPatch(
             (0, 0), self.cart_width, self.cart_height,
@@ -298,14 +318,87 @@ class CartPendulumAnimator:
         self.theta_marker, = self.ax_theta.plot([], [], 'ro', markersize=8)
         self.x_marker, = self.ax_x.plot([], [], 'bo', markersize=8)
     
-    def _update_gains(self, val):
-        """Callback for slider changes."""
-        if self.controller is not None and hasattr(self.controller, 'set_gains'):
+    def _on_slider_change(self, val):
+        """Callback for slider changes - re-run simulation and restart animation."""
+        if self.controller is None or self.initial_state is None:
+            return
+        
+        # Update controller gains
+        if hasattr(self.controller, 'set_gains'):
             self.controller.set_gains(
                 Kp=self.slider_kp.val,
                 Ki=self.slider_ki.val,
                 Kd=self.slider_kd.val
             )
+        
+        # Reset controller state
+        self.controller.reset()
+        
+        # Re-run simulation
+        from src.simulation import simulate
+        results = simulate(
+            self.initial_state, 
+            self.t_span, 
+            controller=self.controller,
+            enable_air_drag=self.enable_air_drag
+        )
+        
+        # Update data
+        self.t = results['t']
+        self.states = results['states']
+        
+        # Reset animation to frame 0
+        self.current_frame = 0
+        
+        # Update axis limits for new data
+        self._compute_axis_limits()
+        self.ax_anim.set_xlim(self.xlim)
+        self.ax_anim.set_ylim(self.ylim)
+        
+        # Update theta plot limits
+        theta_deg = np.degrees(self.states[:, 2])
+        self.ax_theta.set_ylim(min(theta_deg.min(), -10) - 5, max(theta_deg.max(), 10) + 5)
+        
+        # Update x plot limits
+        self.ax_x.set_ylim(self.states[:, 0].min() - 0.1, self.states[:, 0].max() + 0.1)
+        
+        # Clear the plot lines by removing and recreating them
+        self.theta_line.remove()
+        self.x_line.remove()
+        self.theta_marker.remove()
+        self.x_marker.remove()
+        
+        self.theta_line, = self.ax_theta.plot([], [], 'r-', linewidth=1.5)
+        self.x_line, = self.ax_x.plot([], [], 'b-', linewidth=1.5)
+        self.theta_marker, = self.ax_theta.plot([], [], 'ro', markersize=8)
+        self.x_marker, = self.ax_x.plot([], [], 'bo', markersize=8)
+        
+        # Reset cart and pendulum to initial position
+        x0 = self.states[0, 0]
+        theta0 = self.states[0, 2]
+        
+        cart_x = x0 - self.cart_width / 2
+        cart_y = -self.cart_height / 2
+        self.cart_patch.set_x(cart_x)
+        self.cart_patch.set_y(cart_y)
+        
+        wheel_y = -self.cart_height / 2
+        self.wheel_left.center = (x0 - self.cart_width / 3, wheel_y)
+        self.wheel_right.center = (x0 + self.cart_width / 3, wheel_y)
+        
+        pivot_x = x0
+        pivot_y = self.cart_height / 2
+        self.pivot_point.center = (pivot_x, pivot_y)
+        
+        pend_x = pivot_x + self.pendulum_length * np.sin(theta0)
+        pend_y = pivot_y + self.pendulum_length * np.cos(theta0)
+        self.pendulum_line.set_data([pivot_x, pend_x], [pivot_y, pend_y])
+        
+        self.time_text.set_text(f't = 0.00 s\nx = {x0:.3f} m\nθ = {np.degrees(theta0):.1f}°')
+        
+        # Force complete redraw
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
     
     def _init_animation(self):
         """Initialize animation elements."""
@@ -325,8 +418,12 @@ class CartPendulumAnimator:
                 self.pendulum_line, self.pivot_point, self.time_text,
                 self.theta_line, self.x_line, self.theta_marker, self.x_marker)
     
-    def _update_animation(self, frame):
+    def _update_animation(self, frame_idx):
         """Update animation for given frame."""
+        # Use internal frame counter that resets on slider change
+        frame = (self.current_frame * self.skip_frames) % len(self.t)
+        self.current_frame += 1
+        
         x = self.states[frame, 0]
         theta = self.states[frame, 2]
         t_current = self.t[frame]
@@ -375,17 +472,23 @@ class CartPendulumAnimator:
     def animate(self, interval=20, skip_frames=1, save_path=None):
         """Run the animation."""
         self._setup_figure()
+        self.skip_frames = skip_frames
         
-        frames = range(0, len(self.t), skip_frames)
+        # Use a generator that runs indefinitely
+        def frame_generator():
+            i = 0
+            while True:
+                yield i
+                i += 1
         
         self.anim = FuncAnimation(
             self.fig,
             self._update_animation,
-            frames=frames,
+            frames=frame_generator(),
             init_func=self._init_animation,
             interval=interval,
             blit=True,
-            repeat=True,
+            cache_frame_data=False,
         )
         
         if save_path:
@@ -408,9 +511,15 @@ def animate_from_file(filepath, **kwargs):
 
 
 def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None, 
-                        show_sliders=False, **kwargs):
+                        show_sliders=False, initial_state=None, t_span=None,
+                        enable_air_drag=True, **kwargs):
     """Animate from arrays with optional controller for sliders."""
-    animator = CartPendulumAnimator(t, states, title=title, 
-                                     controller=controller, 
-                                     show_sliders=show_sliders)
+    animator = CartPendulumAnimator(
+        t, states, title=title, 
+        controller=controller, 
+        show_sliders=show_sliders,
+        initial_state=initial_state,
+        t_span=t_span,
+        enable_air_drag=enable_air_drag
+    )
     animator.animate(**kwargs)

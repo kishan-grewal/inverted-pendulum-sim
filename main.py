@@ -22,7 +22,7 @@ def create_controller(controller_type):
         raise ValueError(f"Unknown controller: {controller_type}")
 
 
-def run_eval_b(angle_deg, controller_type, duration=10.0, enable_air_drag=True,
+def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
                show_animation=True, show_sliders=False, save=True):
     """
     Run Evaluation B: Recovery from initial angle offset.
@@ -114,10 +114,15 @@ def run_eval_b(angle_deg, controller_type, duration=10.0, enable_air_drag=True,
         
         # Only show sliders for PID
         use_sliders = show_sliders and controller_type == 'pid'
-        animate_from_arrays(t, states, title=title, 
-                           controller=controller if use_sliders else None,
-                           show_sliders=use_sliders,
-                           interval=20, skip_frames=2)
+        animate_from_arrays(
+            t, states, title=title, 
+            controller=controller if use_sliders else None,
+            show_sliders=use_sliders,
+            initial_state=initial_state,
+            t_span=t_span,
+            enable_air_drag=enable_air_drag,
+            interval=20, skip_frames=2
+        )
     
     return results
 
@@ -138,8 +143,8 @@ Examples:
     parser.add_argument('--controller', type=str, required=True, 
                         choices=['lqr', 'pid'],
                         help='Controller type: lqr or pid')
-    parser.add_argument('--duration', type=float, default=10.0,
-                        help='Simulation duration in seconds (default: 10)')
+    parser.add_argument('--duration', type=float, default=5.0,
+                        help='Simulation duration in seconds (default: 5.0)')
     parser.add_argument('--no-drag', action='store_true',
                         help='Disable air drag simulation')
     parser.add_argument('--sliders', action='store_true',
