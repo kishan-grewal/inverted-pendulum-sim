@@ -9,36 +9,108 @@ class LQRController:
     Linear Quadratic Regulator for cart-pendulum stabilisation.
     
     Computes optimal state feedback gain K by solving the continuous-time
-    algebraic Riccati equation. The gain is calculated based on the linearised
-    system dynamics and user-specified Q (state cost) and R (control cost) matrices.
+    algebraic Riccati equation. Q and R matrices are derived from physical
+    energy considerations, ensuring weights scale naturally with system parameters.
     
-    The closed-loop poles are determined by the solution, not prescribed.
+    Energy-based weighting:
+        - Cart kinetic energy: ½ M_t ẋ²
+        - Pendulum potential energy: m_pend g l (1 - cos θ) ≈ ½ m_pend g l θ²
+        - Pendulum rotational kinetic energy: ½ I_pivot θ̇²
+        - Cart position: scaled by 1/l² for dimensional consistency
+        - Control: scaled by (M_t g)² representing force to accelerate at 1g
+    
+    The cost functional becomes a weighted sum of physical energies,
+    making the trade-offs interpretable and automatically scaled.
     """
     
-    def __init__(self, Q=None, R=None, output_limits=None):
+    def __init__(self, Q=None, R=None, output_limits=None,
+                 position_weight=10.0, velocity_weight=1.0,
+                 angle_weight=1.0, angular_velocity_weight=1.0,
+                 control_weight=1.0):
+        """
+        Initialise LQR controller with energy-based weights.
+        
+        Args:
+            Q: State cost matrix (4x4). If None, calculated from energy scaling.
+            R: Control cost matrix (1x1). If None, calculated from energy scaling.
+            output_limits: (min, max) force limits [N]
+            position_weight: Multiplier for cart position cost (default 1.0)
+            velocity_weight: Multiplier for cart velocity cost (default 1.0)
+            angle_weight: Multiplier for pendulum angle cost (default 1.0)
+            angular_velocity_weight: Multiplier for angular velocity cost (default 1.0)
+            control_weight: Multiplier for control effort cost (default 1.0)
+                            Higher = less aggressive control, slower response
+        """
+        from src.dynamics import get_parameters
+        
         A, B = linearise()
+        params = get_parameters()
         
-        # Default weights if not provided
-        # Q penalises state deviation: [x, x_dot, theta, theta_dot]
-        # Higher weight = more aggressive correction for that state
+        self.output_limits = output_limits
+        
+        # Extract physical parameters
+        M_t = params['M_t']         # total translating mass [kg]
+        m_pend = params['m_pend']   # pendulum mass [kg]
+        l = params['l']             # pivot to CoM distance [m]
+        I_pivot = params['I_pivot'] # moment of inertia about pivot [kg·m²]
+        g = params['g']             # gravity [m/s²]
+        
+        # Energy-based Q matrix derivation:
+        #
+        # Cart position: no natural energy term, use 1/l² for dimensional 
+        # consistency (penalise displacement relative to pendulum length)
+        q_x = (1.0 / l**2) * position_weight
+        
+        # Cart velocity: from kinetic energy ½ M_t ẋ²
+        # Coefficient in quadratic form is M_t
+        q_xdot = M_t * velocity_weight
+        
+        # Pendulum angle: from potential energy m g l (1 - cos θ) ≈ ½ m g l θ²
+        # Coefficient in quadratic form is m_pend * g * l
+        q_theta = (m_pend * g * l) * angle_weight
+        
+        # Angular velocity: from rotational kinetic energy ½ I_pivot θ̇²
+        # Coefficient in quadratic form is I_pivot
+        q_thetadot = I_pivot * angular_velocity_weight
+        
         if Q is None:
-            Q = np.diag([1.0, 1.0, 100.0, 10.0])
+            Q = np.diag([q_x, q_xdot, q_theta, q_thetadot])
         
-        # R penalises control effort (scalar for single input)
-        # Higher R = less aggressive control, slower response
+        # Energy-based R matrix:
+        # Scale by (M_t * g)² - the force to accelerate total mass at 1g
+        # This makes control cost dimensionally consistent with state costs
+        # control_weight > 1 means more conservative control (less force)
+        F_ref = M_t * g  # reference force scale [N]
+        
         if R is None:
-            R = np.array([[0.1]])
+            r = (1.0 / F_ref**2) * control_weight
+            R = np.array([[r]])
         
         # Solve continuous-time algebraic Riccati equation
-        # Returns: K (gain), S (solution to ARE), E (closed-loop eigenvalues)
         K, S, E = control.lqr(A, B, Q, R)
         
         self.K = np.array(K).flatten()  # shape (4,)
         self.Q = Q
         self.R = R
-        self.closed_loop_poles = E  # eigenvalues of (A - B @ K)
+        self.closed_loop_poles = E
         
-        self.output_limits = output_limits
+        # Store computed weights for logging
+        self._energy_weights = {
+            'q_x': q_x,
+            'q_xdot': q_xdot,
+            'q_theta': q_theta,
+            'q_thetadot': q_thetadot,
+            'r': R[0, 0],
+            'F_ref': F_ref,
+        }
+        
+        self._tuning_weights = {
+            'position_weight': position_weight,
+            'velocity_weight': velocity_weight,
+            'angle_weight': angle_weight,
+            'angular_velocity_weight': angular_velocity_weight,
+            'control_weight': control_weight,
+        }
     
     def reset(self):
         """Reset controller state (none for LQR)."""
@@ -65,11 +137,13 @@ class LQRController:
     def get_info(self):
         """Return controller parameters for logging."""
         return {
-            'type': 'LQR',
+            'type': 'LQR (energy-weighted)',
             'K': self.K.tolist(),
             'Q_diag': np.diag(self.Q).tolist(),
             'R': self.R[0, 0],
-            'closed_loop_poles': self.closed_loop_poles.tolist(),
+            'closed_loop_poles': [complex(p).real for p in self.closed_loop_poles],
+            'tuning_weights': self._tuning_weights,
+            'energy_weights': self._energy_weights,
         }
 
 
@@ -136,7 +210,7 @@ class PIDController:
         D = self.Kd * theta_dot
         
         # Total control force
-        # Positive theta (tilted right) -> negative force (push left) to restore
+        # Positive theta (tilted right) -> positive force (push right to catch it)
         F = P + I + D
         
         if self.output_limits is not None:

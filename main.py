@@ -65,11 +65,11 @@ def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
     final_theta_deg = np.abs(np.degrees(states[-100:, 2]))
     stabilised = np.all(final_theta_deg < 1.0)
     
-    # Find settling time (when angle stays within ±2° for 0.5s)
+    # Find settling time (when angle stays within ±0.5° for 0.5s)
     theta_deg = np.abs(np.degrees(states[:, 2]))
     settling_idx = None
     for i in range(len(theta_deg) - 50):
-        if np.all(theta_deg[i:i+50] < 2.0):
+        if np.all(theta_deg[i:i+50] < 0.5):
             settling_idx = i
             break
     settling_time = t[settling_idx] if settling_idx else None
