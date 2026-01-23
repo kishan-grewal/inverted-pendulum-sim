@@ -226,3 +226,127 @@ class PIDController:
             'Ki': self.Ki,
             'Kd': self.Kd,
         }
+    
+
+class PolePlacementController:
+    """
+    Pole Placement (State Feedback) Controller for cart-pendulum stabilisation.
+
+    Computes state feedback gain K by placing the closed-loop poles at
+    user-specified locations. Unlike LQR which optimises a cost function,
+    pole placement directly prescribes the system's dynamic response.
+
+    For a stable system, all poles must have negative real parts.
+    Poles further left = faster response but higher control effort.
+
+    The closed-loop system is: x_dot = (A - B @ K) @ x
+    where eigenvalues of (A - B @ K) are the desired poles.
+    """
+
+    def __init__(self, poles=None, output_limits=None):
+        """
+        Initialise pole placement controller.
+
+        Args:
+            poles: Desired closed-loop poles (4 values for 4th order system).
+                   Can be real or complex conjugate pairs.
+                   Default: [-2, -3, -4, -5] (stable, moderately fast)
+            output_limits: (min, max) force limits in Newtons
+        """
+        A, B = linearise()
+
+        # Default poles if not provided
+        # These should all have negative real parts for stability
+        # More negative = faster response but more aggressive control
+        if poles is None:
+            # Moderate response: settling time ~2-3 seconds
+            poles = [-2.0, -3.0, -4.0, -5.0]
+
+        self.desired_poles = np.array(poles)
+
+        # Validate poles
+        if len(self.desired_poles) != 4:
+            raise ValueError(f"System is 4th order, need 4 poles, got {len(self.desired_poles)}")
+
+        # Check stability (all poles should have negative real parts)
+        if np.any(np.real(self.desired_poles) >= 0):
+            raise ValueError("All poles must have negative real parts for stability")
+
+        # Compute gain matrix K using pole placement
+        # control.place() uses Ackermann's formula or similar methods
+        K = control.place(A, B, self.desired_poles)
+
+        self.K = np.array(K).flatten()  # shape (4,)
+        self.A = A
+        self.B = B
+        self.output_limits = output_limits
+
+        # Verify poles were placed correctly
+        # A_cl = A - B @ K (K is 1x4 from control.place)
+        A_cl = A - B @ K
+        self.actual_poles = np.linalg.eigvals(A_cl)
+
+    def reset(self):
+        """Reset controller state (none for state feedback)."""
+        pass
+
+    def compute(self, state, dt):
+        """
+        Compute control force from state feedback.
+
+        Args:
+            state: [x, x_dot, theta, theta_dot]
+            dt: time step (unused for pole placement)
+
+        Returns:
+            F: control force [N]
+        """
+        F = -self.K @ state
+
+        if self.output_limits is not None:
+            F = np.clip(F, self.output_limits[0], self.output_limits[1])
+
+        return F
+
+    def get_info(self):
+        """Return controller parameters for logging."""
+        return {
+            'type': 'PolePlacement',
+            'K': self.K.tolist(),
+            'desired_poles': self.desired_poles.tolist(),
+            'actual_poles': self.actual_poles.tolist(),
+        }
+
+    @staticmethod
+    def suggest_poles(settling_time=2.0, damping_ratio=0.7):
+        """
+        Suggest pole locations based on desired performance specs.
+
+        For a second-order dominant response:
+        - settling_time: approximate time to reach steady state (seconds)
+        - damping_ratio: 0.7 is typical (underdamped but not too oscillatory)
+
+        Returns 4 poles: 2 dominant (complex conjugates) + 2 fast real poles
+        """
+        # Dominant poles determine settling time
+        # For 2% settling: ts ≈ 4 / (zeta * omega_n)
+        # So omega_n ≈ 4 / (zeta * ts)
+        zeta = damping_ratio
+        omega_n = 4.0 / (zeta * settling_time)
+
+        # Dominant complex conjugate poles
+        sigma = -zeta * omega_n  # real part
+        omega_d = omega_n * np.sqrt(1 - zeta**2)  # imaginary part
+
+        dominant_poles = [
+            complex(sigma, omega_d),
+            complex(sigma, -omega_d)
+        ]
+
+        # Fast poles (3-5x further left, won't affect dominant response much)
+        fast_poles = [
+            3 * sigma,
+            4 * sigma
+        ]
+
+        return dominant_poles + fast_poles

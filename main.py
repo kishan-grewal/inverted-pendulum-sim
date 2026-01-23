@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from src.dynamics import get_parameters
-from src.controllers import LQRController, PIDController
+from src.controllers import LQRController, PIDController, PolePlacementController
 from src.simulation import simulate, save_results
 from src.visualisation import animate_from_arrays
 
@@ -12,40 +12,43 @@ from src.visualisation import animate_from_arrays
 FORCE_LIMITS = (-15.0, 15.0)
 
 
-def create_controller(controller_type):
+def create_controller(controller_type, poles=None):
     """Create controller instance based on type string."""
     if controller_type == 'lqr':
         return LQRController(output_limits=FORCE_LIMITS)
     elif controller_type == 'pid':
         return PIDController(output_limits=FORCE_LIMITS)
+    elif controller_type == 'pole':
+        return PolePlacementController(poles=poles, output_limits=FORCE_LIMITS)
     else:
         raise ValueError(f"Unknown controller: {controller_type}")
 
 
 def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
-               show_animation=True, show_sliders=False, save=True):
+               show_animation=True, show_sliders=False, save=True, poles=None):
     """
     Run Evaluation B: Recovery from initial angle offset.
-    
+
     Args:
         angle_deg: initial angle in degrees
-        controller_type: 'lqr' or 'pid'
+        controller_type: 'lqr', 'pid', or 'pole'
         duration: simulation duration [s]
         enable_air_drag: include air drag in simulation
         show_animation: display animation window
         show_sliders: show PID gain sliders (only for PID controller)
         save: save results to file
+        poles: desired closed-loop poles for pole placement controller
     """
     print(f"Evaluation B: Recovery from {angle_deg}°")
     print(f"  Controller: {controller_type.upper()}")
     print(f"  Air drag: {'enabled' if enable_air_drag else 'disabled'}")
     print("-" * 50)
-    
+
     theta_0 = np.radians(angle_deg)
     initial_state = np.array([0.0, 0.0, theta_0, 0.0])
     t_span = (0.0, duration)
-    
-    controller = create_controller(controller_type)
+
+    controller = create_controller(controller_type, poles=poles)
     
     # Print controller info
     info = controller.get_info()
@@ -111,16 +114,17 @@ def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
         title = f"Eval B: {controller_type.upper()} from {angle_deg}°"
         if not enable_air_drag:
             title += " (no drag)"
-        
+
         # Only show sliders for PID
         use_sliders = show_sliders and controller_type == 'pid'
         animate_from_arrays(
-            t, states, title=title, 
+            t, states, title=title,
             controller=controller if use_sliders else None,
             show_sliders=use_sliders,
             initial_state=initial_state,
             t_span=t_span,
             enable_air_drag=enable_air_drag,
+            control=results['control'],
             interval=20, skip_frames=2
         )
     
@@ -135,14 +139,19 @@ def main():
 Examples:
   python main.py -B 15 --controller lqr
   python main.py -B 15 --controller pid --sliders
+  python main.py -B 15 --controller pole
+  python main.py -B 15 --controller pole --poles -3,-4,-5,-6
+  python main.py -B 15 --controller pole --poles "-3+2j,-3-2j,-8,-10"
   python main.py -B 15 --controller pid --no-drag
         """
     )
     parser.add_argument('-B', type=float, metavar='ANGLE',
                         help='Run evaluation B (recovery) from specified angle in degrees')
-    parser.add_argument('--controller', type=str, required=True, 
-                        choices=['lqr', 'pid'],
-                        help='Controller type: lqr or pid')
+    parser.add_argument('--controller', type=str, required=True,
+                        choices=['lqr', 'pid', 'pole'],
+                        help='Controller type: lqr, pid, or pole')
+    parser.add_argument('--poles', type=str, default=None,
+                        help='Desired poles for pole placement (4 comma-separated values, e.g. -2,-3,-4,-5 or "-3+2j,-3-2j,-8,-10")')
     parser.add_argument('--duration', type=float, default=5.0,
                         help='Simulation duration in seconds (default: 5.0)')
     parser.add_argument('--no-drag', action='store_true',
@@ -155,7 +164,12 @@ Examples:
                         help='Disable saving results')
     
     args = parser.parse_args()
-    
+
+    # Parse poles if provided (supports complex numbers like -3+2j)
+    poles = None
+    if args.poles is not None:
+        poles = [complex(p.strip()) for p in args.poles.split(',')]
+
     if args.B is not None:
         run_eval_b(
             angle_deg=args.B,
@@ -165,6 +179,7 @@ Examples:
             show_animation=not args.no_animation,
             show_sliders=args.sliders,
             save=not args.no_save,
+            poles=poles,
         )
     else:
         parser.print_help()
