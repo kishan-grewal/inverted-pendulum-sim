@@ -24,7 +24,7 @@ class LQRController:
     """
     
     def __init__(self, Q=None, R=None, output_limits=None,
-                 position_weight=10.0, velocity_weight=1.0,
+                 position_weight=1.0, velocity_weight=1.0,
                  angle_weight=1.0, angular_velocity_weight=1.0,
                  control_weight=1.0):
         """
