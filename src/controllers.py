@@ -43,53 +43,56 @@ class LQRController:
         """
         from src.dynamics import get_parameters
         
-        A, B = linearise()
-        params = get_parameters()
-        
+        self.params = get_parameters()
         self.output_limits = output_limits
         
+        # Store weight multipliers
+        self._tuning_weights = {
+            'position_weight': position_weight,
+            'velocity_weight': velocity_weight,
+            'angle_weight': angle_weight,
+            'angular_velocity_weight': angular_velocity_weight,
+            'control_weight': control_weight,
+        }
+        
+        # Compute K matrix
+        self._recompute_gain()
+    
+    def _recompute_gain(self):
+        """Recompute LQR gain from current weights."""
+        A, B = linearise()
+        
         # Extract physical parameters
-        M_t = params['M_t']         # total translating mass [kg]
-        m_pend = params['m_pend']   # pendulum mass [kg]
-        l = params['l']             # pivot to CoM distance [m]
-        I_pivot = params['I_pivot'] # moment of inertia about pivot [kg·m²]
-        g = params['g']             # gravity [m/s²]
+        M_t = self.params['M_t']
+        m_pend = self.params['m_pend']
+        l = self.params['l']
+        I_pivot = self.params['I_pivot']
+        g = self.params['g']
         
-        # Energy-based Q matrix derivation:
-        #
-        # Cart position: no natural energy term, use 1/l² for dimensional 
-        # consistency (penalise displacement relative to pendulum length)
+        # Get weight multipliers
+        position_weight = self._tuning_weights['position_weight']
+        velocity_weight = self._tuning_weights['velocity_weight']
+        angle_weight = self._tuning_weights['angle_weight']
+        angular_velocity_weight = self._tuning_weights['angular_velocity_weight']
+        control_weight = self._tuning_weights['control_weight']
+        
+        # Energy-based Q matrix
         q_x = (1.0 / l**2) * position_weight
-        
-        # Cart velocity: from kinetic energy ½ M_t ẋ²
-        # Coefficient in quadratic form is M_t
         q_xdot = M_t * velocity_weight
-        
-        # Pendulum angle: from potential energy m g l (1 - cos θ) ≈ ½ m g l θ²
-        # Coefficient in quadratic form is m_pend * g * l
         q_theta = (m_pend * g * l) * angle_weight
-        
-        # Angular velocity: from rotational kinetic energy ½ I_pivot θ̇²
-        # Coefficient in quadratic form is I_pivot
         q_thetadot = I_pivot * angular_velocity_weight
         
-        if Q is None:
-            Q = np.diag([q_x, q_xdot, q_theta, q_thetadot])
+        Q = np.diag([q_x, q_xdot, q_theta, q_thetadot])
         
-        # Energy-based R matrix:
-        # Scale by (M_t * g)² - the force to accelerate total mass at 1g
-        # This makes control cost dimensionally consistent with state costs
-        # control_weight > 1 means more conservative control (less force)
-        F_ref = M_t * g  # reference force scale [N]
-        
-        if R is None:
-            r = (1.0 / F_ref**2) * control_weight
-            R = np.array([[r]])
+        # Energy-based R matrix
+        F_ref = M_t * g
+        r = (1.0 / F_ref**2) * control_weight
+        R = np.array([[r]])
         
         # Solve continuous-time algebraic Riccati equation
         K, S, E = control.lqr(A, B, Q, R)
         
-        self.K = np.array(K).flatten()  # shape (4,)
+        self.K = np.array(K).flatten()
         self.Q = Q
         self.R = R
         self.closed_loop_poles = E
@@ -103,14 +106,23 @@ class LQRController:
             'r': R[0, 0],
             'F_ref': F_ref,
         }
+    
+    def set_weights(self, position_weight=None, velocity_weight=None,
+                    angle_weight=None, angular_velocity_weight=None,
+                    control_weight=None):
+        """Update LQR weights and recompute gain."""
+        if position_weight is not None:
+            self._tuning_weights['position_weight'] = position_weight
+        if velocity_weight is not None:
+            self._tuning_weights['velocity_weight'] = velocity_weight
+        if angle_weight is not None:
+            self._tuning_weights['angle_weight'] = angle_weight
+        if angular_velocity_weight is not None:
+            self._tuning_weights['angular_velocity_weight'] = angular_velocity_weight
+        if control_weight is not None:
+            self._tuning_weights['control_weight'] = control_weight
         
-        self._tuning_weights = {
-            'position_weight': position_weight,
-            'velocity_weight': velocity_weight,
-            'angle_weight': angle_weight,
-            'angular_velocity_weight': angular_velocity_weight,
-            'control_weight': control_weight,
-        }
+        self._recompute_gain()
     
     def reset(self):
         """Reset controller state (none for LQR)."""
@@ -253,17 +265,21 @@ class PolePlacementController:
                    Default: [-2, -3, -4, -5] (stable, moderately fast)
             output_limits: (min, max) force limits in Newtons
         """
-        A, B = linearise()
-
+        self.output_limits = output_limits
+        
         # Default poles if not provided
-        # These should all have negative real parts for stability
-        # More negative = faster response but more aggressive control
         if poles is None:
-            # Moderate response: settling time ~2-3 seconds
             poles = [-2.0, -3.0, -4.0, -5.0]
-
+        
         self.desired_poles = np.array(poles)
-
+        
+        # Compute gain
+        self._recompute_gain()
+    
+    def _recompute_gain(self):
+        """Recompute gain from current poles."""
+        A, B = linearise()
+        
         # Validate poles
         if len(self.desired_poles) != 4:
             raise ValueError(f"System is 4th order, need 4 poles, got {len(self.desired_poles)}")
@@ -273,18 +289,31 @@ class PolePlacementController:
             raise ValueError("All poles must have negative real parts for stability")
 
         # Compute gain matrix K using pole placement
-        # control.place() uses Ackermann's formula or similar methods
         K = control.place(A, B, self.desired_poles)
 
         self.K = np.array(K).flatten()  # shape (4,)
         self.A = A
         self.B = B
-        self.output_limits = output_limits
 
         # Verify poles were placed correctly
-        # A_cl = A - B @ K (K is 1x4 from control.place)
         A_cl = A - B @ K
         self.actual_poles = np.linalg.eigvals(A_cl)
+    
+    def set_poles(self, pole1=None, pole2=None, pole3=None, pole4=None):
+        """Update desired poles and recompute gain."""
+        poles_list = list(self.desired_poles)
+        
+        if pole1 is not None:
+            poles_list[0] = pole1
+        if pole2 is not None:
+            poles_list[1] = pole2
+        if pole3 is not None:
+            poles_list[2] = pole3
+        if pole4 is not None:
+            poles_list[3] = pole4
+        
+        self.desired_poles = np.array(poles_list)
+        self._recompute_gain()
 
     def reset(self):
         """Reset controller state (none for state feedback)."""

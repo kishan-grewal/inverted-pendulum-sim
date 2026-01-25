@@ -146,13 +146,13 @@ def plot_from_file(filepath, show=True, save=False):
 # -----------------------------------------------------------------------------
 
 class CartPendulumAnimator:
-    """Animator for cart-pendulum system with optional PID gain sliders."""
+    """Animator for cart-pendulum system with optional controller and noise sliders."""
 
     def __init__(self, t, states, cart_width=0.3, cart_height=0.15,
                  pendulum_length=None, title="Cart-Pendulum Animation",
-                 controller=None, show_sliders=False,
+                 controller=None, observer=None, show_sliders=False,
                  initial_state=None, t_span=None, enable_air_drag=True,
-                 control=None):
+                 control=None, noise_std_x=0.002, noise_std_theta=0.005):
         self.t = t
         self.states = states
         self.control = control if control is not None else np.zeros(len(t))
@@ -161,12 +161,26 @@ class CartPendulumAnimator:
         self.pendulum_length = pendulum_length if pendulum_length else L_rod
         self.title = title
         self.controller = controller
-        self.show_sliders = show_sliders and controller is not None
+        self.observer = observer
+        self.show_sliders = show_sliders and (controller is not None or observer is not None)
 
         # Store simulation parameters for re-running
         self.initial_state = initial_state
         self.t_span = t_span
         self.enable_air_drag = enable_air_drag
+        self.noise_std_x = noise_std_x
+        self.noise_std_theta = noise_std_theta
+
+        # Determine controller type
+        self.controller_type = None
+        if controller is not None:
+            info = controller.get_info()
+            if 'PID' in info['type']:
+                self.controller_type = 'pid'
+            elif 'LQR' in info['type']:
+                self.controller_type = 'lqr'
+            elif 'PolePlacement' in info['type'] or 'Pole' in info['type']:
+                self.controller_type = 'pole'
 
         # Current frame index
         self.current_frame = 0
@@ -181,9 +195,7 @@ class CartPendulumAnimator:
         self.anim = None
 
         # Slider references
-        self.slider_kp = None
-        self.slider_ki = None
-        self.slider_kd = None
+        self.sliders = {}
     
     def _compute_axis_limits(self):
         """Compute axis limits from current data."""
@@ -202,7 +214,7 @@ class CartPendulumAnimator:
         self._compute_axis_limits()
 
         if self.show_sliders:
-            self.fig = plt.figure(figsize=(18, 10))
+            self.fig = plt.figure(figsize=(20, 10))
         else:
             self.fig = plt.figure(figsize=(16, 9))
         self.fig.suptitle(self.title)
@@ -210,61 +222,142 @@ class CartPendulumAnimator:
         # Adjust layout for sliders if needed
         if self.show_sliders:
             # Main animation axes
-            self.ax_anim = self.fig.add_axes([0.03, 0.25, 0.38, 0.65])
+            self.ax_anim = self.fig.add_axes([0.03, 0.30, 0.38, 0.60])
 
             # Right side: 2x2 grid of plots
-            # Top row: Theta (left), Force (right)
             self.ax_theta = self.fig.add_axes([0.46, 0.55, 0.24, 0.35])
             self.ax_force = self.fig.add_axes([0.74, 0.55, 0.24, 0.35])
+            self.ax_x = self.fig.add_axes([0.46, 0.10, 0.24, 0.35])
+            self.ax_dforce = self.fig.add_axes([0.74, 0.10, 0.24, 0.35])
 
-            # Bottom row: X position (left), dF/dt (right)
-            self.ax_x = self.fig.add_axes([0.46, 0.1, 0.24, 0.35])
-            self.ax_dforce = self.fig.add_axes([0.74, 0.1, 0.24, 0.35])
+            # Create sliders based on controller type
+            self._setup_sliders()
 
-            # Slider axes
-            ax_kp = self.fig.add_axes([0.10, 0.15, 0.25, 0.03])
-            ax_ki = self.fig.add_axes([0.10, 0.10, 0.25, 0.03])
-            ax_kd = self.fig.add_axes([0.10, 0.05, 0.25, 0.03])
-
-            # Get current gains from controller
-            info = self.controller.get_info()
-            current_kp = info.get('Kp', 50.0)
-            current_ki = info.get('Ki', 0.0)
-            current_kd = info.get('Kd', 3.0)
-
-            # Create sliders
-            self.slider_kp = Slider(ax_kp, 'Kp', 0.0, 200.0, valinit=current_kp, valstep=1.0)
-            self.slider_ki = Slider(ax_ki, 'Ki', 0.0, 10.0, valinit=current_ki, valstep=0.1)
-            self.slider_kd = Slider(ax_kd, 'Kd', 0.0, 50.0, valinit=current_kd, valstep=0.5)
-
-            # Connect slider callbacks
-            self.slider_kp.on_changed(self._on_slider_change)
-            self.slider_ki.on_changed(self._on_slider_change)
-            self.slider_kd.on_changed(self._on_slider_change)
-
-            # Add note about sliders
-            self.fig.text(0.03, 0.01,
-                         "Adjust sliders to re-run simulation with new gains",
-                         fontsize=9, style='italic', alpha=0.7)
         else:
-            # Standard layout without sliders: animation left, 2x2 plots right
+            # Standard layout without sliders
             self.ax_anim = self.fig.add_axes([0.03, 0.10, 0.40, 0.80])
-
-            # Top row: Theta (left), Force (right)
             self.ax_theta = self.fig.add_axes([0.50, 0.55, 0.22, 0.35])
             self.ax_force = self.fig.add_axes([0.76, 0.55, 0.22, 0.35])
-
-            # Bottom row: X position (left), dF/dt (right)
             self.ax_x = self.fig.add_axes([0.50, 0.10, 0.22, 0.35])
             self.ax_dforce = self.fig.add_axes([0.76, 0.10, 0.22, 0.35])
 
         self._setup_axes()
         self._setup_artists()
     
+    def _setup_sliders(self):
+        """Create sliders based on controller type and observer."""
+        slider_y_start = 0.22
+        slider_height = 0.02
+        slider_spacing = 0.03
+        
+        current_y = slider_y_start
+        
+        # Controller-specific sliders
+        if self.controller_type == 'pid':
+            info = self.controller.get_info()
+            
+            # PID sliders
+            ax_kp = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['Kp'] = Slider(ax_kp, 'Kp', 0.0, 200.0, 
+                                        valinit=info.get('Kp', 50.0), valstep=1.0)
+            current_y -= slider_spacing
+            
+            ax_ki = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['Ki'] = Slider(ax_ki, 'Ki', 0.0, 10.0, 
+                                        valinit=info.get('Ki', 0.0), valstep=0.1)
+            current_y -= slider_spacing
+            
+            ax_kd = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['Kd'] = Slider(ax_kd, 'Kd', 0.0, 50.0, 
+                                        valinit=info.get('Kd', 3.0), valstep=0.5)
+            current_y -= slider_spacing
+        
+        elif self.controller_type == 'lqr':
+            info = self.controller.get_info()
+            weights = info.get('tuning_weights', {})
+            
+            # LQR weight sliders
+            ax_pos = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['position_weight'] = Slider(ax_pos, 'Position Weight', 0.1, 10.0,
+                                                      valinit=weights.get('position_weight', 1.0),
+                                                      valstep=0.1)
+            current_y -= slider_spacing
+            
+            ax_vel = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['velocity_weight'] = Slider(ax_vel, 'Velocity Weight', 0.1, 10.0,
+                                                      valinit=weights.get('velocity_weight', 1.0),
+                                                      valstep=0.1)
+            current_y -= slider_spacing
+            
+            ax_ang = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['angle_weight'] = Slider(ax_ang, 'Angle Weight', 0.1, 10.0,
+                                                   valinit=weights.get('angle_weight', 1.0),
+                                                   valstep=0.1)
+            current_y -= slider_spacing
+            
+            ax_angvel = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['angular_velocity_weight'] = Slider(ax_angvel, 'Angular Vel Weight', 0.1, 10.0,
+                                                              valinit=weights.get('angular_velocity_weight', 1.0),
+                                                              valstep=0.1)
+            current_y -= slider_spacing
+            
+            ax_ctrl = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['control_weight'] = Slider(ax_ctrl, 'Control Weight', 0.1, 10.0,
+                                                     valinit=weights.get('control_weight', 1.0),
+                                                     valstep=0.1)
+            current_y -= slider_spacing
+        
+        elif self.controller_type == 'pole':
+            info = self.controller.get_info()
+            poles = info.get('desired_poles', [-2, -3, -4, -5])
+            
+            # Pole placement sliders (4 real poles)
+            ax_p1 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['pole1'] = Slider(ax_p1, 'Pole 1', -20.0, -0.5,
+                                           valinit=poles[0], valstep=0.5)
+            current_y -= slider_spacing
+            
+            ax_p2 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['pole2'] = Slider(ax_p2, 'Pole 2', -20.0, -0.5,
+                                           valinit=poles[1], valstep=0.5)
+            current_y -= slider_spacing
+            
+            ax_p3 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['pole3'] = Slider(ax_p3, 'Pole 3', -20.0, -0.5,
+                                           valinit=poles[2], valstep=0.5)
+            current_y -= slider_spacing
+            
+            ax_p4 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['pole4'] = Slider(ax_p4, 'Pole 4', -20.0, -0.5,
+                                           valinit=poles[3], valstep=0.5)
+            current_y -= slider_spacing
+        
+        # Noise sliders (universal if observer is present)
+        if self.observer is not None:
+            current_y -= slider_spacing * 0.5  # Extra gap before noise sliders
+            
+            ax_noise_x = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['noise_x'] = Slider(ax_noise_x, 'Noise σ_x [mm]', 0.0, 10.0,
+                                             valinit=self.noise_std_x * 1000, valstep=0.1)
+            current_y -= slider_spacing
+            
+            ax_noise_theta = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
+            self.sliders['noise_theta'] = Slider(ax_noise_theta, 'Noise σ_θ [°]', 0.0, 2.0,
+                                                  valinit=np.degrees(self.noise_std_theta), valstep=0.05)
+        
+        # Connect all slider callbacks
+        for slider in self.sliders.values():
+            slider.on_changed(self._on_slider_change)
+        
+        # Add note about sliders
+        self.fig.text(0.03, 0.01,
+                     "Adjust sliders to re-run simulation with new parameters",
+                     fontsize=9, style='italic', alpha=0.7)
+    
     def _compute_dforce(self):
         """Compute derivative of force (dF/dt)."""
         dt = np.diff(self.t)
-        dt = np.where(dt == 0, 1e-6, dt)  # Avoid division by zero
+        dt = np.where(dt == 0, 1e-6, dt)
         dforce = np.diff(self.control[:len(self.t)]) / dt
         # Pad to match length of t
         return np.concatenate([[0], dforce])
@@ -367,19 +460,43 @@ class CartPendulumAnimator:
     
     def _on_slider_change(self, val):
         """Callback for slider changes - re-run simulation and restart animation."""
-        if self.controller is None or self.initial_state is None:
+        if self.controller is None and self.observer is None:
             return
 
-        # Update controller gains
-        if hasattr(self.controller, 'set_gains'):
-            self.controller.set_gains(
-                Kp=self.slider_kp.val,
-                Ki=self.slider_ki.val,
-                Kd=self.slider_kd.val
-            )
+        # Update controller parameters
+        if self.controller is not None:
+            if self.controller_type == 'pid':
+                self.controller.set_gains(
+                    Kp=self.sliders['Kp'].val,
+                    Ki=self.sliders['Ki'].val,
+                    Kd=self.sliders['Kd'].val
+                )
+            elif self.controller_type == 'lqr':
+                self.controller.set_weights(
+                    position_weight=self.sliders['position_weight'].val,
+                    velocity_weight=self.sliders['velocity_weight'].val,
+                    angle_weight=self.sliders['angle_weight'].val,
+                    angular_velocity_weight=self.sliders['angular_velocity_weight'].val,
+                    control_weight=self.sliders['control_weight'].val
+                )
+            elif self.controller_type == 'pole':
+                self.controller.set_poles(
+                    pole1=self.sliders['pole1'].val,
+                    pole2=self.sliders['pole2'].val,
+                    pole3=self.sliders['pole3'].val,
+                    pole4=self.sliders['pole4'].val
+                )
 
-        # Reset controller state
-        self.controller.reset()
+        # Update noise parameters if observer present
+        if self.observer is not None and 'noise_x' in self.sliders:
+            self.noise_std_x = self.sliders['noise_x'].val / 1000  # Convert mm to m
+            self.noise_std_theta = np.radians(self.sliders['noise_theta'].val)  # Convert deg to rad
+
+        # Reset controller and observer state
+        if self.controller is not None:
+            self.controller.reset()
+        if self.observer is not None:
+            self.observer.reset()
 
         # Re-run simulation
         from src.simulation import simulate
@@ -387,13 +504,21 @@ class CartPendulumAnimator:
             self.initial_state,
             self.t_span,
             controller=self.controller,
-            enable_air_drag=self.enable_air_drag
+            enable_air_drag=self.enable_air_drag,
+            observer=self.observer,
+            noise_std_x=self.noise_std_x,
+            noise_std_theta=self.noise_std_theta
         )
 
         # Update data
         self.t = results['t']
         self.states = results['states']
-        self.control = results['control']
+        control = results['control']
+        
+        # Pad control to match states length
+        if len(control) < len(self.states):
+            control = np.concatenate([[0.0], control])
+        self.control = control
         self.dforce = self._compute_dforce()
 
         # Reset animation to frame 0
@@ -592,16 +717,20 @@ def animate_from_file(filepath, **kwargs):
 
 
 def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
-                        show_sliders=False, initial_state=None, t_span=None,
-                        enable_air_drag=True, control=None, **kwargs):
-    """Animate from arrays with optional controller for sliders."""
+                        observer=None, show_sliders=False, initial_state=None,
+                        t_span=None, enable_air_drag=True, control=None,
+                        noise_std_x=0.002, noise_std_theta=0.005, **kwargs):
+    """Animate from arrays with optional controller/observer for sliders."""
     animator = CartPendulumAnimator(
         t, states, title=title,
         controller=controller,
+        observer=observer,
         show_sliders=show_sliders,
         initial_state=initial_state,
         t_span=t_span,
         enable_air_drag=enable_air_drag,
-        control=control
+        control=control,
+        noise_std_x=noise_std_x,
+        noise_std_theta=noise_std_theta
     )
     animator.animate(**kwargs)
