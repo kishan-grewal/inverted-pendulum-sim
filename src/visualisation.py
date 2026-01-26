@@ -255,25 +255,25 @@ class CartPendulumAnimator:
             
             ax_pos = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
             self.textboxes['position_weight'] = TextBox(ax_pos, 'Pos Weight', 
-                                                         initial=str(weights.get('position_weight', 1.0)))
+                                                        initial=str(weights.get('position_weight', 1.0)))
             self.textboxes['position_weight'].on_submit(lambda text: self._on_textbox_submit('position_weight', text))
             current_y -= TEXTBOX_SPACING
             
             ax_vel = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
             self.textboxes['velocity_weight'] = TextBox(ax_vel, 'Vel Weight', 
-                                                         initial=str(weights.get('velocity_weight', 1.0)))
+                                                        initial=str(weights.get('velocity_weight', 1.0)))
             self.textboxes['velocity_weight'].on_submit(lambda text: self._on_textbox_submit('velocity_weight', text))
             current_y -= TEXTBOX_SPACING
             
             ax_ang = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
             self.textboxes['angle_weight'] = TextBox(ax_ang, 'Ang Weight', 
-                                                      initial=str(weights.get('angle_weight', 1.0)))
+                                                    initial=str(weights.get('angle_weight', 1.0)))
             self.textboxes['angle_weight'].on_submit(lambda text: self._on_textbox_submit('angle_weight', text))
             current_y -= TEXTBOX_SPACING
             
             ax_angvel = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
             self.textboxes['angular_velocity_weight'] = TextBox(ax_angvel, 'AngVel Weight',
-                                                                 initial=str(weights.get('angular_velocity_weight', 1.0)))
+                                                                initial=str(weights.get('angular_velocity_weight', 1.0)))
             self.textboxes['angular_velocity_weight'].on_submit(lambda text: self._on_textbox_submit('angular_velocity_weight', text))
             current_y -= TEXTBOX_SPACING
             
@@ -286,42 +286,28 @@ class CartPendulumAnimator:
         elif self.controller_type == 'pole':
             info = self.controller.get_info()
             poles = info.get('desired_poles', [-2, -3, -4, -5])
+            poles_str = ', '.join(str(p) for p in poles)
             
-            ax_p1 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
-            self.textboxes['pole1'] = TextBox(ax_p1, 'Pole 1', initial=str(poles[0]))
-            self.textboxes['pole1'].on_submit(lambda text: self._on_textbox_submit('pole1', text))
-            current_y -= TEXTBOX_SPACING
-            
-            ax_p2 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
-            self.textboxes['pole2'] = TextBox(ax_p2, 'Pole 2', initial=str(poles[1]))
-            self.textboxes['pole2'].on_submit(lambda text: self._on_textbox_submit('pole2', text))
-            current_y -= TEXTBOX_SPACING
-            
-            ax_p3 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
-            self.textboxes['pole3'] = TextBox(ax_p3, 'Pole 3', initial=str(poles[2]))
-            self.textboxes['pole3'].on_submit(lambda text: self._on_textbox_submit('pole3', text))
-            current_y -= TEXTBOX_SPACING
-            
-            ax_p4 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
-            self.textboxes['pole4'] = TextBox(ax_p4, 'Pole 4', initial=str(poles[3]))
-            self.textboxes['pole4'].on_submit(lambda text: self._on_textbox_submit('pole4', text))
+            ax_poles = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['poles'] = TextBox(ax_poles, 'Poles', initial=poles_str)
+            self.textboxes['poles'].on_submit(lambda text: self._on_textbox_submit('poles', text))
             current_y -= TEXTBOX_SPACING
         
         if self.observer is not None:
             ax_noise_x = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
             self.textboxes['noise_x'] = TextBox(ax_noise_x, 'Noise σ_x [m]', 
-                                                 initial=str(self.noise_std_x))
+                                                initial=str(self.noise_std_x))
             self.textboxes['noise_x'].on_submit(lambda text: self._on_textbox_submit('noise_x', text))
             current_y -= TEXTBOX_SPACING
             
             ax_noise_theta = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
             self.textboxes['noise_theta'] = TextBox(ax_noise_theta, 'Noise σ_θ [°]',
-                                                     initial=str(self.noise_std_theta))
+                                                    initial=str(self.noise_std_theta))
             self.textboxes['noise_theta'].on_submit(lambda text: self._on_textbox_submit('noise_theta', text))
         
         self.fig.text(0.03, 0.01,
-                     "Enter values and press Enter to re-run simulation",
-                     fontsize=9, style='italic', alpha=0.7)
+                    "Enter values and press Enter to re-run simulation",
+                    fontsize=9, style='italic', alpha=0.7)
     
     def _compute_dforce(self):
         """Compute derivative of force (dF/dt)."""
@@ -431,8 +417,22 @@ class CartPendulumAnimator:
         try:
             value = float(text)
         except ValueError:
-            print(f"Invalid input for {param_name}: '{text}' (must be a number)")
-            return
+            # Check if this is the poles parameter (comma-separated)
+            if param_name == 'poles':
+                try:
+                    poles = [float(p.strip()) for p in text.split(',')]
+                    if len(poles) != 4:
+                        print(f"Error: Expected 4 poles, got {len(poles)}")
+                        return
+                    # Successfully parsed 4 poles
+                    self.controller.set_poles(pole1=poles[0], pole2=poles[1], 
+                                            pole3=poles[2], pole4=poles[3])
+                except (ValueError, AttributeError) as e:
+                    print(f"Invalid pole input: '{text}' (expected format: -2, -3, -4, -5)")
+                    return
+            else:
+                print(f"Invalid input for {param_name}: '{text}' (must be a number)")
+                return
 
         # Handle noise parameters FIRST (before controller checks)
         if param_name == 'noise_x':
@@ -440,8 +440,8 @@ class CartPendulumAnimator:
         elif param_name == 'noise_theta':
             self.noise_std_theta = value
         
-        # Then handle controller parameters
-        elif self.controller is not None:
+        # Then handle controller parameters (skip poles since handled above)
+        elif self.controller is not None and param_name != 'poles':
             if self.controller_type == 'pid':
                 if param_name == 'Kp':
                     self.controller.set_gains(Kp=value)
@@ -453,16 +453,6 @@ class CartPendulumAnimator:
             elif self.controller_type == 'lqr':
                 kwargs = {param_name: value}
                 self.controller.set_weights(**kwargs)
-            
-            elif self.controller_type == 'pole':
-                if param_name == 'pole1':
-                    self.controller.set_poles(pole1=value)
-                elif param_name == 'pole2':
-                    self.controller.set_poles(pole2=value)
-                elif param_name == 'pole3':
-                    self.controller.set_poles(pole3=value)
-                elif param_name == 'pole4':
-                    self.controller.set_poles(pole4=value)
 
         # Reset and re-run simulation
         if self.controller is not None:
