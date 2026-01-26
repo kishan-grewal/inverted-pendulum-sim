@@ -271,7 +271,7 @@ class CartPendulumAnimator:
         self.cart_patch = FancyBboxPatch(
             (0, 0), self.cart_width, self.cart_height,
             boxstyle="round,pad=0.01",
-            facecolor='steelblue',
+            facecolor='#4A4A4A',
             edgecolor='black',
             linewidth=2,
         )
@@ -285,9 +285,9 @@ class CartPendulumAnimator:
         self.ax_anim.add_patch(self.wheel_right)
 
         # Pendulum rod
-        self.pendulum_line, = self.ax_anim.plot([], [], 'o-', color='firebrick',
+        self.pendulum_line, = self.ax_anim.plot([], [], 'o-', color="#CE8D00",
                                                   linewidth=4, markersize=12,
-                                                  markerfacecolor='darkred')
+                                                  markerfacecolor="#CE8D00")
 
         # Pivot point
         self.pivot_point = Circle((0, 0), 0.02, facecolor='black', zorder=5)
