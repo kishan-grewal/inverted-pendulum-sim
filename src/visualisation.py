@@ -2,10 +2,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import Circle, FancyBboxPatch
-from matplotlib.widgets import Slider
+from matplotlib.widgets import TextBox
 from pathlib import Path
 
 from src.dynamics import get_parameters, L_rod
+
+
+# ===== TEXTBOX LAYOUT CONSTANTS =====
+TEXTBOX_Y_START = 0.27
+TEXTBOX_HEIGHT = 0.025
+TEXTBOX_SPACING = 0.035
+TEXTBOX_WIDTH = 0.15
+TEXTBOX_X_POS = 0.10
+# ====================================
 
 
 def load_results(filepath):
@@ -194,7 +203,7 @@ class CartPendulumAnimator:
         self.ax_dforce = None
         self.anim = None
 
-        self.sliders = {}
+        self.textboxes = {}
     
     def _compute_axis_limits(self):
         x_min = np.min(self.states[:, 0]) - self.cart_width - self.pendulum_length
@@ -223,7 +232,7 @@ class CartPendulumAnimator:
             self.ax_x = self.fig.add_axes([0.46, 0.10, 0.24, 0.35])
             self.ax_dforce = self.fig.add_axes([0.74, 0.10, 0.24, 0.35])
 
-            self._setup_sliders()
+            self._setup_textboxes()
 
         else:
             self.ax_anim = self.fig.add_axes([0.03, 0.10, 0.40, 0.80])
@@ -235,106 +244,99 @@ class CartPendulumAnimator:
         self._setup_axes()
         self._setup_artists()
     
-    def _setup_sliders(self):
-        slider_y_start = 0.22
-        slider_height = 0.02
-        slider_spacing = 0.03
-        
-        current_y = slider_y_start
+    def _setup_textboxes(self):
+        current_y = TEXTBOX_Y_START
         
         if self.controller_type == 'pid':
             info = self.controller.get_info()
             
-            ax_kp = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['Kp'] = Slider(ax_kp, 'Kp', 0.0, 200.0, 
-                                        valinit=info.get('Kp', 50.0), valstep=1.0)
-            current_y -= slider_spacing
+            ax_kp = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['Kp'] = TextBox(ax_kp, 'Kp', initial=str(info.get('Kp', 50.0)))
+            self.textboxes['Kp'].on_submit(lambda text: self._on_textbox_submit('Kp', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_ki = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['Ki'] = Slider(ax_ki, 'Ki', 0.0, 10.0, 
-                                        valinit=info.get('Ki', 0.0), valstep=0.1)
-            current_y -= slider_spacing
+            ax_ki = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['Ki'] = TextBox(ax_ki, 'Ki', initial=str(info.get('Ki', 0.0)))
+            self.textboxes['Ki'].on_submit(lambda text: self._on_textbox_submit('Ki', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_kd = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['Kd'] = Slider(ax_kd, 'Kd', 0.0, 50.0, 
-                                        valinit=info.get('Kd', 3.0), valstep=0.5)
-            current_y -= slider_spacing
+            ax_kd = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['Kd'] = TextBox(ax_kd, 'Kd', initial=str(info.get('Kd', 3.0)))
+            self.textboxes['Kd'].on_submit(lambda text: self._on_textbox_submit('Kd', text))
+            current_y -= TEXTBOX_SPACING
         
         elif self.controller_type == 'lqr':
             info = self.controller.get_info()
             weights = info.get('tuning_weights', {})
             
-            ax_pos = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['position_weight'] = Slider(ax_pos, 'Position Weight', 0.1, 10.0,
-                                                      valinit=weights.get('position_weight', 1.0),
-                                                      valstep=0.1)
-            current_y -= slider_spacing
+            ax_pos = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['position_weight'] = TextBox(ax_pos, 'Pos Weight', 
+                                                         initial=str(weights.get('position_weight', 1.0)))
+            self.textboxes['position_weight'].on_submit(lambda text: self._on_textbox_submit('position_weight', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_vel = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['velocity_weight'] = Slider(ax_vel, 'Velocity Weight', 0.1, 10.0,
-                                                      valinit=weights.get('velocity_weight', 1.0),
-                                                      valstep=0.1)
-            current_y -= slider_spacing
+            ax_vel = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['velocity_weight'] = TextBox(ax_vel, 'Vel Weight', 
+                                                         initial=str(weights.get('velocity_weight', 1.0)))
+            self.textboxes['velocity_weight'].on_submit(lambda text: self._on_textbox_submit('velocity_weight', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_ang = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['angle_weight'] = Slider(ax_ang, 'Angle Weight', 0.1, 10.0,
-                                                   valinit=weights.get('angle_weight', 1.0),
-                                                   valstep=0.1)
-            current_y -= slider_spacing
+            ax_ang = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['angle_weight'] = TextBox(ax_ang, 'Ang Weight', 
+                                                      initial=str(weights.get('angle_weight', 1.0)))
+            self.textboxes['angle_weight'].on_submit(lambda text: self._on_textbox_submit('angle_weight', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_angvel = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['angular_velocity_weight'] = Slider(ax_angvel, 'Angular Vel Weight', 0.1, 10.0,
-                                                              valinit=weights.get('angular_velocity_weight', 1.0),
-                                                              valstep=0.1)
-            current_y -= slider_spacing
+            ax_angvel = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['angular_velocity_weight'] = TextBox(ax_angvel, 'AngVel Weight',
+                                                                 initial=str(weights.get('angular_velocity_weight', 1.0)))
+            self.textboxes['angular_velocity_weight'].on_submit(lambda text: self._on_textbox_submit('angular_velocity_weight', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_ctrl = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['control_weight'] = Slider(ax_ctrl, 'Control Weight', 0.1, 10.0,
-                                                     valinit=weights.get('control_weight', 1.0),
-                                                     valstep=0.1)
-            current_y -= slider_spacing
+            ax_ctrl = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['control_weight'] = TextBox(ax_ctrl, 'Ctrl Weight', 
+                                                        initial=str(weights.get('control_weight', 1.0)))
+            self.textboxes['control_weight'].on_submit(lambda text: self._on_textbox_submit('control_weight', text))
+            current_y -= TEXTBOX_SPACING
         
         elif self.controller_type == 'pole':
             info = self.controller.get_info()
             poles = info.get('desired_poles', [-2, -3, -4, -5])
             
-            ax_p1 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['pole1'] = Slider(ax_p1, 'Pole 1', -20.0, -0.5,
-                                           valinit=poles[0], valstep=0.5)
-            current_y -= slider_spacing
+            ax_p1 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['pole1'] = TextBox(ax_p1, 'Pole 1', initial=str(poles[0]))
+            self.textboxes['pole1'].on_submit(lambda text: self._on_textbox_submit('pole1', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_p2 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['pole2'] = Slider(ax_p2, 'Pole 2', -20.0, -0.5,
-                                           valinit=poles[1], valstep=0.5)
-            current_y -= slider_spacing
+            ax_p2 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['pole2'] = TextBox(ax_p2, 'Pole 2', initial=str(poles[1]))
+            self.textboxes['pole2'].on_submit(lambda text: self._on_textbox_submit('pole2', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_p3 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['pole3'] = Slider(ax_p3, 'Pole 3', -20.0, -0.5,
-                                           valinit=poles[2], valstep=0.5)
-            current_y -= slider_spacing
+            ax_p3 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['pole3'] = TextBox(ax_p3, 'Pole 3', initial=str(poles[2]))
+            self.textboxes['pole3'].on_submit(lambda text: self._on_textbox_submit('pole3', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_p4 = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['pole4'] = Slider(ax_p4, 'Pole 4', -20.0, -0.5,
-                                           valinit=poles[3], valstep=0.5)
-            current_y -= slider_spacing
+            ax_p4 = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['pole4'] = TextBox(ax_p4, 'Pole 4', initial=str(poles[3]))
+            self.textboxes['pole4'].on_submit(lambda text: self._on_textbox_submit('pole4', text))
+            current_y -= TEXTBOX_SPACING
         
         if self.observer is not None:
-            current_y -= slider_spacing * 0.5
+            ax_noise_x = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['noise_x'] = TextBox(ax_noise_x, 'Noise σ_x [mm]', 
+                                                 initial=str(self.noise_std_x * 1000))
+            self.textboxes['noise_x'].on_submit(lambda text: self._on_textbox_submit('noise_x', text))
+            current_y -= TEXTBOX_SPACING
             
-            ax_noise_x = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['noise_x'] = Slider(ax_noise_x, 'Noise σ_x [mm]', 0.0, 10.0,
-                                             valinit=self.noise_std_x * 1000, valstep=0.1)
-            current_y -= slider_spacing
-            
-            ax_noise_theta = self.fig.add_axes([0.10, current_y, 0.25, slider_height])
-            self.sliders['noise_theta'] = Slider(ax_noise_theta, 'Noise σ_θ [°]', 0.0, 2.0,
-                                                  valinit=np.degrees(self.noise_std_theta), valstep=0.05)
-        
-        for slider in self.sliders.values():
-            slider.on_changed(self._on_slider_change)
+            ax_noise_theta = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
+            self.textboxes['noise_theta'] = TextBox(ax_noise_theta, 'Noise σ_θ [°]',
+                                                     initial=str(np.degrees(self.noise_std_theta)))
+            self.textboxes['noise_theta'].on_submit(lambda text: self._on_textbox_submit('noise_theta', text))
         
         self.fig.text(0.03, 0.01,
-                     "Adjust sliders to re-run simulation with new parameters",
+                     "Enter values and press Enter to re-run simulation",
                      fontsize=9, style='italic', alpha=0.7)
     
     def _compute_dforce(self):
@@ -425,36 +427,41 @@ class CartPendulumAnimator:
         self.force_marker, = self.ax_force.plot([], [], 'go', markersize=8)
         self.dforce_marker, = self.ax_dforce.plot([], [], 'mo', markersize=8)
     
-    def _on_slider_change(self, val):
-        if self.controller is None and self.observer is None:
+    def _on_textbox_submit(self, param_name, text):
+        try:
+            value = float(text)
+        except ValueError:
+            print(f"Invalid input for {param_name}: '{text}' (must be a number)")
             return
 
         if self.controller is not None:
             if self.controller_type == 'pid':
-                self.controller.set_gains(
-                    Kp=self.sliders['Kp'].val,
-                    Ki=self.sliders['Ki'].val,
-                    Kd=self.sliders['Kd'].val
-                )
+                if param_name == 'Kp':
+                    self.controller.set_gains(Kp=value)
+                elif param_name == 'Ki':
+                    self.controller.set_gains(Ki=value)
+                elif param_name == 'Kd':
+                    self.controller.set_gains(Kd=value)
+            
             elif self.controller_type == 'lqr':
-                self.controller.set_weights(
-                    position_weight=self.sliders['position_weight'].val,
-                    velocity_weight=self.sliders['velocity_weight'].val,
-                    angle_weight=self.sliders['angle_weight'].val,
-                    angular_velocity_weight=self.sliders['angular_velocity_weight'].val,
-                    control_weight=self.sliders['control_weight'].val
-                )
+                kwargs = {param_name: value}
+                self.controller.set_weights(**kwargs)
+            
             elif self.controller_type == 'pole':
-                self.controller.set_poles(
-                    pole1=self.sliders['pole1'].val,
-                    pole2=self.sliders['pole2'].val,
-                    pole3=self.sliders['pole3'].val,
-                    pole4=self.sliders['pole4'].val
-                )
+                if param_name == 'pole1':
+                    self.controller.set_poles(pole1=value)
+                elif param_name == 'pole2':
+                    self.controller.set_poles(pole2=value)
+                elif param_name == 'pole3':
+                    self.controller.set_poles(pole3=value)
+                elif param_name == 'pole4':
+                    self.controller.set_poles(pole4=value)
 
-        if self.observer is not None and 'noise_x' in self.sliders:
-            self.noise_std_x = self.sliders['noise_x'].val / 1000
-            self.noise_std_theta = np.radians(self.sliders['noise_theta'].val)
+        if self.observer is not None:
+            if param_name == 'noise_x':
+                self.noise_std_x = value / 1000
+            elif param_name == 'noise_theta':
+                self.noise_std_theta = np.radians(value)
 
         if self.controller is not None:
             self.controller.reset()
