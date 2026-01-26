@@ -25,7 +25,26 @@ def add_sensor_noise(true_state, noise_std_x=DEFAULT_NOISE_STD_X,
 
 def simulate(initial_state, t_span, dt=DEFAULT_DT, controller=None, enable_air_drag=True,
              observer=None, noise_std_x=DEFAULT_NOISE_STD_X, 
-             noise_std_theta=DEFAULT_NOISE_STD_THETA):
+             noise_std_theta=DEFAULT_NOISE_STD_THETA, disturbances=None):
+    """
+    Simulate the cart-pendulum system.
+    
+    Args:
+        initial_state: [x, x_dot, theta, theta_dot]
+        t_span: (t_start, t_end)
+        dt: timestep [s]
+        controller: controller object with compute(state, dt) method
+        enable_air_drag: whether to include air drag
+        observer: observer object with update(y_measured, u, dt) method
+        noise_std_x: position measurement noise std dev [m]
+        noise_std_theta: angle measurement noise std dev [deg]
+        disturbances: list of (time, cart_impulse, angular_impulse) tuples
+                     cart_impulse changes cart velocity [N·s]
+                     angular_impulse changes angular velocity [N·s·m]
+    
+    Returns:
+        dict with keys: 't', 'states', 'control', and optionally 'estimates', 'measurements'
+    """
     t_eval = np.arange(t_span[0], t_span[1], dt)
     
     control_history = []
@@ -48,6 +67,19 @@ def simulate(initial_state, t_span, dt=DEFAULT_DT, controller=None, enable_air_d
         t_prev = t_eval[i-1]
         t_curr = t_eval[i]
         dt_step = t_curr - t_prev
+        
+        # Apply disturbances BEFORE computing control and integration
+        if disturbances is not None:
+            for dist_time, cart_impulse, angular_impulse in disturbances:
+                if t_prev <= dist_time < t_curr:
+                    # Get physical parameters
+                    params = get_parameters()
+                    M_t = params['M_t']
+                    I_pivot = params['I_pivot']
+                    
+                    # Apply impulses (change velocities instantly)
+                    state[1] += cart_impulse / M_t  # Δv_cart = J / M
+                    state[3] += angular_impulse / I_pivot  # Δω = τ·dt / I
         
         # Update observer once per timestep (not inside RK45 stages)
         if observer is None:
