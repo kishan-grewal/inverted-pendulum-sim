@@ -10,7 +10,15 @@ from src.simulation import simulate, save_results
 from src.visualisation import animate_from_arrays, plot_time_series, plot_phase_portrait
 
 
+# ===== SYSTEM CONSTRAINTS =====
 FORCE_LIMITS = (-15.0, 15.0)
+
+# ===== SENSOR NOISE DEFAULTS =====
+DEFAULT_NOISE_STD_X = 0.002  # [m] position measurement noise
+DEFAULT_NOISE_STD_THETA = 0.005  # [rad] angle measurement noise
+
+# ===== SIMULATION DEFAULTS =====
+DEFAULT_DURATION = 5.0  # [s]
 
 
 def create_controller(controller_type, poles=None):
@@ -22,10 +30,11 @@ def create_controller(controller_type, poles=None):
         return PolePlacementController(poles=poles, output_limits=FORCE_LIMITS)
 
 
-def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
+def run_eval_b(angle_deg, controller_type, duration=DEFAULT_DURATION, enable_air_drag=True,
                show_animation=True, show_sliders=False, save=True, poles=None,
-               use_observer=False, observer_poles=None, noise_std_x=0.002,
-               noise_std_theta=0.005):
+               use_observer=False, observer_poles=None, 
+               noise_std_x=DEFAULT_NOISE_STD_X,
+               noise_std_theta=DEFAULT_NOISE_STD_THETA):
     print(f"Evaluation B: Recovery from {angle_deg}°")
     print(f"  Controller: {controller_type.upper()}")
     print(f"  Air drag: {'enabled' if enable_air_drag else 'disabled'}")
@@ -185,9 +194,9 @@ Examples:
     parser.add_argument('--poles', type=str, default=None)
     parser.add_argument('--observer', action='store_true')
     parser.add_argument('--observer-poles', type=str, default=None)
-    parser.add_argument('--noise-x', type=float, default=0.002)
-    parser.add_argument('--noise-theta', type=float, default=0.005)
-    parser.add_argument('--duration', type=float, default=5.0)
+    parser.add_argument('--noise-x', type=float, default=DEFAULT_NOISE_STD_X)
+    parser.add_argument('--noise-theta', type=float, default=DEFAULT_NOISE_STD_THETA)
+    parser.add_argument('--duration', type=float, default=DEFAULT_DURATION)
     parser.add_argument('--no-drag', action='store_true')
     parser.add_argument('--sliders', action='store_true')
     parser.add_argument('--no-animation', action='store_true')

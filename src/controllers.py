@@ -4,11 +4,28 @@ import control
 from src.dynamics import linearise
 
 
+# ===== CONTROLLER DEFAULT PARAMETERS =====
+DEFAULT_PID_KP = 50.0
+DEFAULT_PID_KI = 0.0
+DEFAULT_PID_KD = 3.0
+DEFAULT_PID_INTEGRAL_LIMIT = 10.0
+
+DEFAULT_LQR_POSITION_WEIGHT = 1.0
+DEFAULT_LQR_VELOCITY_WEIGHT = 1.0
+DEFAULT_LQR_ANGLE_WEIGHT = 1.0
+DEFAULT_LQR_ANGULAR_VELOCITY_WEIGHT = 1.0
+DEFAULT_LQR_CONTROL_WEIGHT = 1.0
+
+DEFAULT_POLE_PLACEMENT_POLES = [-2.0, -3.0, -4.0, -5.0]
+
+
 class LQRController:
     def __init__(self, Q=None, R=None, output_limits=None,
-                 position_weight=1.0, velocity_weight=1.0,
-                 angle_weight=1.0, angular_velocity_weight=1.0,
-                 control_weight=1.0):
+                 position_weight=DEFAULT_LQR_POSITION_WEIGHT,
+                 velocity_weight=DEFAULT_LQR_VELOCITY_WEIGHT,
+                 angle_weight=DEFAULT_LQR_ANGLE_WEIGHT,
+                 angular_velocity_weight=DEFAULT_LQR_ANGULAR_VELOCITY_WEIGHT,
+                 control_weight=DEFAULT_LQR_CONTROL_WEIGHT):
         from src.dynamics import get_parameters
         
         self.params = get_parameters()
@@ -108,14 +125,14 @@ class LQRController:
 
 class PIDController:
     def __init__(self, Kp=None, Ki=None, Kd=None, output_limits=None):
-        self.Kp = Kp if Kp is not None else 50.0
-        self.Ki = Ki if Ki is not None else 0.0
-        self.Kd = Kd if Kd is not None else 3.0
+        self.Kp = Kp if Kp is not None else DEFAULT_PID_KP
+        self.Ki = Ki if Ki is not None else DEFAULT_PID_KI
+        self.Kd = Kd if Kd is not None else DEFAULT_PID_KD
         
         self.output_limits = output_limits
         
         self.integral = 0.0
-        self.integral_limit = 10.0
+        self.integral_limit = DEFAULT_PID_INTEGRAL_LIMIT
     
     def reset(self):
         self.integral = 0.0
@@ -163,7 +180,7 @@ class PolePlacementController:
         self.output_limits = output_limits
         
         if poles is None:
-            poles = [-2.0, -3.0, -4.0, -5.0]
+            poles = DEFAULT_POLE_PLACEMENT_POLES
         
         self.desired_poles = np.array(poles)
         

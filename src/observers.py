@@ -4,18 +4,21 @@ import control
 from src.dynamics import linearise
 
 
+# ===== OBSERVER DEFAULT PARAMETERS =====
+DEFAULT_OBSERVER_POLES = [-10.0, -12.0, -15.0, -18.0]
+
+
 class LuenbergerObserver:
     def __init__(self, observer_poles=None):
         A, B = linearise()
         
-        # Measurement matrix: we measure x and theta
         C = np.array([
             [1, 0, 0, 0],
             [0, 0, 1, 0],
         ])
         
         if observer_poles is None:
-            observer_poles = [-10.0, -12.0, -15.0, -18.0]
+            observer_poles = DEFAULT_OBSERVER_POLES
         
         self.desired_poles = np.array(observer_poles)
         
@@ -46,7 +49,6 @@ class LuenbergerObserver:
         B_flat = self.B.flatten()
         x_hat_dot = self.A @ self.x_hat + B_flat * u + self.L @ innovation
         
-        # Euler integration
         self.x_hat += x_hat_dot * dt
         
         return self.x_hat.copy()

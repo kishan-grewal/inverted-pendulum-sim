@@ -5,7 +5,14 @@ from pathlib import Path
 from src.dynamics import state_derivative, get_parameters
 
 
-def add_sensor_noise(true_state, noise_std_x=0.002, noise_std_theta=0.005):
+# ===== SIMULATION DEFAULTS =====
+DEFAULT_DT = 0.01  # [s] integration timestep
+DEFAULT_NOISE_STD_X = 0.002  # [m] position measurement noise
+DEFAULT_NOISE_STD_THETA = 0.005  # [rad] angle measurement noise
+
+
+def add_sensor_noise(true_state, noise_std_x=DEFAULT_NOISE_STD_X, 
+                     noise_std_theta=DEFAULT_NOISE_STD_THETA):
     x_true = true_state[0]
     theta_true = true_state[2]
     
@@ -15,8 +22,9 @@ def add_sensor_noise(true_state, noise_std_x=0.002, noise_std_theta=0.005):
     return np.array([x_measured, theta_measured])
 
 
-def simulate(initial_state, t_span, dt=0.01, controller=None, enable_air_drag=True,
-             observer=None, noise_std_x=0.002, noise_std_theta=0.005):
+def simulate(initial_state, t_span, dt=DEFAULT_DT, controller=None, enable_air_drag=True,
+             observer=None, noise_std_x=DEFAULT_NOISE_STD_X, 
+             noise_std_theta=DEFAULT_NOISE_STD_THETA):
     t_eval = np.arange(t_span[0], t_span[1], dt)
     
     control_history = []
@@ -26,7 +34,6 @@ def simulate(initial_state, t_span, dt=0.01, controller=None, enable_air_drag=Tr
     if observer is not None:
         observer.reset(initial_estimate=initial_state)
     
-    # Current control (updated at each timestep)
     current_control = [0.0]
     
     def dynamics(t, state):
@@ -59,7 +66,6 @@ def simulate(initial_state, t_span, dt=0.01, controller=None, enable_air_drag=Tr
         current_control[0] = F
         control_history.append(F)
         
-        # Integrate with constant control
         sol = solve_ivp(
             dynamics,
             (t_prev, t_curr),
