@@ -5,48 +5,15 @@ from src.dynamics import linearise
 
 
 class LQRController:
-    """
-    Linear Quadratic Regulator for cart-pendulum stabilisation.
-    
-    Computes optimal state feedback gain K by solving the continuous-time
-    algebraic Riccati equation. Q and R matrices are derived from physical
-    energy considerations, ensuring weights scale naturally with system parameters.
-    
-    Energy-based weighting:
-        - Cart kinetic energy: ½ M_t ẋ²
-        - Pendulum potential energy: m_pend g l (1 - cos θ) ≈ ½ m_pend g l θ²
-        - Pendulum rotational kinetic energy: ½ I_pivot θ̇²
-        - Cart position: scaled by 1/l² for dimensional consistency
-        - Control: scaled by (M_t g)² representing force to accelerate at 1g
-    
-    The cost functional becomes a weighted sum of physical energies,
-    making the trade-offs interpretable and automatically scaled.
-    """
-    
     def __init__(self, Q=None, R=None, output_limits=None,
                  position_weight=1.0, velocity_weight=1.0,
                  angle_weight=1.0, angular_velocity_weight=1.0,
                  control_weight=1.0):
-        """
-        Initialise LQR controller with energy-based weights.
-        
-        Args:
-            Q: State cost matrix (4x4). If None, calculated from energy scaling.
-            R: Control cost matrix (1x1). If None, calculated from energy scaling.
-            output_limits: (min, max) force limits [N]
-            position_weight: Multiplier for cart position cost (default 1.0)
-            velocity_weight: Multiplier for cart velocity cost (default 1.0)
-            angle_weight: Multiplier for pendulum angle cost (default 1.0)
-            angular_velocity_weight: Multiplier for angular velocity cost (default 1.0)
-            control_weight: Multiplier for control effort cost (default 1.0)
-                            Higher = less aggressive control, slower response
-        """
         from src.dynamics import get_parameters
         
         self.params = get_parameters()
         self.output_limits = output_limits
         
-        # Store weight multipliers
         self._tuning_weights = {
             'position_weight': position_weight,
             'velocity_weight': velocity_weight,
@@ -55,28 +22,24 @@ class LQRController:
             'control_weight': control_weight,
         }
         
-        # Compute K matrix
         self._recompute_gain()
     
     def _recompute_gain(self):
-        """Recompute LQR gain from current weights."""
         A, B = linearise()
         
-        # Extract physical parameters
         M_t = self.params['M_t']
         m_pend = self.params['m_pend']
         l = self.params['l']
         I_pivot = self.params['I_pivot']
         g = self.params['g']
         
-        # Get weight multipliers
         position_weight = self._tuning_weights['position_weight']
         velocity_weight = self._tuning_weights['velocity_weight']
         angle_weight = self._tuning_weights['angle_weight']
         angular_velocity_weight = self._tuning_weights['angular_velocity_weight']
         control_weight = self._tuning_weights['control_weight']
         
-        # Energy-based Q matrix
+        # Q weights from physical energy: KE_cart, PE_pendulum, KE_rotation
         q_x = (1.0 / l**2) * position_weight
         q_xdot = M_t * velocity_weight
         q_theta = (m_pend * g * l) * angle_weight
@@ -84,12 +47,10 @@ class LQRController:
         
         Q = np.diag([q_x, q_xdot, q_theta, q_thetadot])
         
-        # Energy-based R matrix
         F_ref = M_t * g
         r = (1.0 / F_ref**2) * control_weight
         R = np.array([[r]])
         
-        # Solve continuous-time algebraic Riccati equation
         K, S, E = control.lqr(A, B, Q, R)
         
         self.K = np.array(K).flatten()
@@ -97,7 +58,6 @@ class LQRController:
         self.R = R
         self.closed_loop_poles = E
         
-        # Store computed weights for logging
         self._energy_weights = {
             'q_x': q_x,
             'q_xdot': q_xdot,
@@ -110,7 +70,6 @@ class LQRController:
     def set_weights(self, position_weight=None, velocity_weight=None,
                     angle_weight=None, angular_velocity_weight=None,
                     control_weight=None):
-        """Update LQR weights and recompute gain."""
         if position_weight is not None:
             self._tuning_weights['position_weight'] = position_weight
         if velocity_weight is not None:
@@ -125,20 +84,9 @@ class LQRController:
         self._recompute_gain()
     
     def reset(self):
-        """Reset controller state (none for LQR)."""
         pass
     
     def compute(self, state, dt):
-        """
-        Compute control force from state feedback.
-        
-        Args:
-            state: [x, x_dot, theta, theta_dot]
-            dt: time step (unused for LQR)
-        
-        Returns:
-            F: control force [N]
-        """
         F = -self.K @ state
         
         if self.output_limits is not None:
@@ -147,7 +95,6 @@ class LQRController:
         return F
     
     def get_info(self):
-        """Return controller parameters for logging."""
         return {
             'type': 'LQR (energy-weighted)',
             'K': self.K.tolist(),
@@ -160,32 +107,20 @@ class LQRController:
 
 
 class PIDController:
-    """
-    PID controller for pendulum angle stabilisation.
-    
-    Controls cart force based on pendulum angle error (theta).
-    Uses derivative of theta directly from state rather than numerical differentiation.
-    Includes anti-windup via integral clamping.
-    """
-    
     def __init__(self, Kp=None, Ki=None, Kd=None, output_limits=None):
-        # Default gains (can be tuned via sliders)
         self.Kp = Kp if Kp is not None else 50.0
         self.Ki = Ki if Ki is not None else 0.0
         self.Kd = Kd if Kd is not None else 3.0
         
         self.output_limits = output_limits
         
-        # Internal state
         self.integral = 0.0
-        self.integral_limit = 10.0  # anti-windup clamp
+        self.integral_limit = 10.0
     
     def reset(self):
-        """Reset integral accumulator."""
         self.integral = 0.0
     
     def set_gains(self, Kp=None, Ki=None, Kd=None):
-        """Update gains (for interactive tuning)."""
         if Kp is not None:
             self.Kp = Kp
         if Ki is not None:
@@ -194,35 +129,19 @@ class PIDController:
             self.Kd = Kd
     
     def compute(self, state, dt):
-        """
-        Compute control force from PID on angle error.
-        
-        Args:
-            state: [x, x_dot, theta, theta_dot]
-            dt: time step [s]
-        
-        Returns:
-            F: control force [N]
-        """
         theta = state[2]
         theta_dot = state[3]
         
-        # Error is angle from upright (theta=0 is upright)
         error = theta
         
-        # Proportional term
         P = self.Kp * error
         
-        # Integral term with anti-windup
         self.integral += error * dt
         self.integral = np.clip(self.integral, -self.integral_limit, self.integral_limit)
         I = self.Ki * self.integral
         
-        # Derivative term (use theta_dot directly, more accurate than numerical diff)
         D = self.Kd * theta_dot
         
-        # Total control force
-        # Positive theta (tilted right) -> positive force (push right to catch it)
         F = P + I + D
         
         if self.output_limits is not None:
@@ -231,7 +150,6 @@ class PIDController:
         return F
     
     def get_info(self):
-        """Return controller parameters for logging."""
         return {
             'type': 'PID',
             'Kp': self.Kp,
@@ -241,66 +159,29 @@ class PIDController:
     
 
 class PolePlacementController:
-    """
-    Pole Placement (State Feedback) Controller for cart-pendulum stabilisation.
-
-    Computes state feedback gain K by placing the closed-loop poles at
-    user-specified locations. Unlike LQR which optimises a cost function,
-    pole placement directly prescribes the system's dynamic response.
-
-    For a stable system, all poles must have negative real parts.
-    Poles further left = faster response but higher control effort.
-
-    The closed-loop system is: x_dot = (A - B @ K) @ x
-    where eigenvalues of (A - B @ K) are the desired poles.
-    """
-
     def __init__(self, poles=None, output_limits=None):
-        """
-        Initialise pole placement controller.
-
-        Args:
-            poles: Desired closed-loop poles (4 values for 4th order system).
-                   Can be real or complex conjugate pairs.
-                   Default: [-2, -3, -4, -5] (stable, moderately fast)
-            output_limits: (min, max) force limits in Newtons
-        """
         self.output_limits = output_limits
         
-        # Default poles if not provided
         if poles is None:
             poles = [-2.0, -3.0, -4.0, -5.0]
         
         self.desired_poles = np.array(poles)
         
-        # Compute gain
         self._recompute_gain()
     
     def _recompute_gain(self):
-        """Recompute gain from current poles."""
         A, B = linearise()
         
-        # Validate poles
-        if len(self.desired_poles) != 4:
-            raise ValueError(f"System is 4th order, need 4 poles, got {len(self.desired_poles)}")
-
-        # Check stability (all poles should have negative real parts)
-        if np.any(np.real(self.desired_poles) >= 0):
-            raise ValueError("All poles must have negative real parts for stability")
-
-        # Compute gain matrix K using pole placement
         K = control.place(A, B, self.desired_poles)
 
-        self.K = np.array(K).flatten()  # shape (4,)
+        self.K = np.array(K).flatten()
         self.A = A
         self.B = B
 
-        # Verify poles were placed correctly
         A_cl = A - B @ K
         self.actual_poles = np.linalg.eigvals(A_cl)
     
     def set_poles(self, pole1=None, pole2=None, pole3=None, pole4=None):
-        """Update desired poles and recompute gain."""
         poles_list = list(self.desired_poles)
         
         if pole1 is not None:
@@ -316,20 +197,9 @@ class PolePlacementController:
         self._recompute_gain()
 
     def reset(self):
-        """Reset controller state (none for state feedback)."""
         pass
 
     def compute(self, state, dt):
-        """
-        Compute control force from state feedback.
-
-        Args:
-            state: [x, x_dot, theta, theta_dot]
-            dt: time step (unused for pole placement)
-
-        Returns:
-            F: control force [N]
-        """
         F = -self.K @ state
 
         if self.output_limits is not None:
@@ -338,44 +208,9 @@ class PolePlacementController:
         return F
 
     def get_info(self):
-        """Return controller parameters for logging."""
         return {
             'type': 'PolePlacement',
             'K': self.K.tolist(),
             'desired_poles': self.desired_poles.tolist(),
             'actual_poles': self.actual_poles.tolist(),
         }
-
-    @staticmethod
-    def suggest_poles(settling_time=2.0, damping_ratio=0.7):
-        """
-        Suggest pole locations based on desired performance specs.
-
-        For a second-order dominant response:
-        - settling_time: approximate time to reach steady state (seconds)
-        - damping_ratio: 0.7 is typical (underdamped but not too oscillatory)
-
-        Returns 4 poles: 2 dominant (complex conjugates) + 2 fast real poles
-        """
-        # Dominant poles determine settling time
-        # For 2% settling: ts ≈ 4 / (zeta * omega_n)
-        # So omega_n ≈ 4 / (zeta * ts)
-        zeta = damping_ratio
-        omega_n = 4.0 / (zeta * settling_time)
-
-        # Dominant complex conjugate poles
-        sigma = -zeta * omega_n  # real part
-        omega_d = omega_n * np.sqrt(1 - zeta**2)  # imaginary part
-
-        dominant_poles = [
-            complex(sigma, omega_d),
-            complex(sigma, -omega_d)
-        ]
-
-        # Fast poles (3-5x further left, won't affect dominant response much)
-        fast_poles = [
-            3 * sigma,
-            4 * sigma
-        ]
-
-        return dominant_poles + fast_poles
