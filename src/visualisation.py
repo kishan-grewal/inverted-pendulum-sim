@@ -140,11 +140,11 @@ def plot_phase_portrait(states, title_suffix=""):
 
 
 class CartPendulumAnimator:
-    """Animator for cart-pendulum system with optional controller and noise sliders."""
+    """Animator for cart-pendulum system with optional controller and noise textboxes."""
 
     def __init__(self, t, states, cart_width=0.3, cart_height=0.15,
                  pendulum_length=None, title="Cart-Pendulum Animation",
-                 controller=None, observer=None, show_sliders=False,
+                 controller=None, observer=None, show_textboxes=False,
                  initial_state=None, t_span=None, enable_air_drag=True,
                  control=None, noise_std_x=0.002, noise_std_theta=0.005,
                  disturbances=None):
@@ -157,7 +157,7 @@ class CartPendulumAnimator:
         self.title = title
         self.controller = controller
         self.observer = observer
-        self.show_sliders = show_sliders and (controller is not None or observer is not None)
+        self.show_textboxes = show_textboxes and (controller is not None or observer is not None)
         self.disturbances = disturbances
 
         # Store simulation parameters for re-running
@@ -209,14 +209,14 @@ class CartPendulumAnimator:
         """Create figure with animation and plots."""
         self._compute_axis_limits()
 
-        if self.show_sliders:
+        if self.show_textboxes:
             self.fig = plt.figure(figsize=(20, 10))
         else:
             self.fig = plt.figure(figsize=(16, 9))
         self.fig.suptitle(self.title)
 
-        # Adjust layout for sliders if needed
-        if self.show_sliders:
+        # Adjust layout for textboxes if needed
+        if self.show_textboxes:
             # Main animation axes
             self.ax_anim = self.fig.add_axes([0.03, 0.30, 0.38, 0.60])
 
@@ -230,7 +230,7 @@ class CartPendulumAnimator:
             self._setup_textboxes()
 
         else:
-            # Standard layout without sliders
+            # Standard layout without textboxes
             self.ax_anim = self.fig.add_axes([0.03, 0.10, 0.40, 0.80])
             self.ax_theta = self.fig.add_axes([0.50, 0.55, 0.22, 0.35])
             self.ax_force = self.fig.add_axes([0.76, 0.55, 0.22, 0.35])
@@ -594,7 +594,7 @@ class CartPendulumAnimator:
     
     def _update_animation(self, frame_idx):
         """Update animation for given frame."""
-        # Use internal frame counter that resets on slider change
+        # Use internal frame counter that resets on textbox change
         frame = (self.current_frame * self.skip_frames) % len(self.t)
         self.current_frame += 1
 
@@ -679,16 +679,16 @@ class CartPendulumAnimator:
 
 
 def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
-                        observer=None, show_sliders=False, initial_state=None,
+                        observer=None, show_textboxes=False, initial_state=None,
                         t_span=None, enable_air_drag=True, control=None,
                         noise_std_x=0.002, noise_std_theta=0.005, 
                         disturbances=None, **kwargs):
-    """Animate from arrays with optional controller/observer for sliders."""
+    """Animate from arrays with optional controller/observer for textboxes."""
     animator = CartPendulumAnimator(
         t, states, title=title,
         controller=controller,
         observer=observer,
-        show_sliders=show_sliders,
+        show_textboxes=show_textboxes,
         initial_state=initial_state,
         t_span=t_span,
         enable_air_drag=enable_air_drag,
