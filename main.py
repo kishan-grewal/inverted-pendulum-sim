@@ -19,7 +19,7 @@ DEFAULT_DURATION = 5.0  # [s]
 # ===== EVALUATION A DISTURBANCES =====
 # Format: (time [s], cart_impulse [N·s], angular_impulse [N·s·m])
 EVAL_A1_DISTURBANCE = (1.0, 0.0, 0.01)   # Small tap on pendulum
-EVAL_A2_DISTURBANCE = (1.0, 0.0, 0.1)    # Large tap on pendulum  
+EVAL_A2_DISTURBANCE = (1.0, 0.0, 0.05)    # Large tap on pendulum  
 EVAL_A3_DISTURBANCE = (1.0, 1.0, 0.0)    # Shove to cart
 
 EVAL_A_DURATION = 10.0  # [s] - longer to see settling
@@ -161,7 +161,8 @@ def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_ai
         data_dir = Path(__file__).parent / "data"
         drag_str = "drag" if enable_air_drag else "nodrag"
         obs_str = "obs" if use_observer else "perfect"
-        filename = f"eval_a{test_number}_{controller_type}_{drag_str}_{obs_str}.txt"
+        filename_stem = f"eval_a{test_number}_{controller_type}_{drag_str}_{obs_str}"
+        
         metadata = {
             'Evaluation': f'A{test_number} ({test_name})',
             'Controller': controller_type,
@@ -179,8 +180,23 @@ def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_ai
             metadata['Noise std x [m]'] = noise_std_x
             metadata['Noise std theta [deg]'] = noise_std_theta
         
-        save_results(data_dir / filename, t, states, get_parameters(), metadata)
-        print(f"  Saved to: {data_dir / filename}")
+        save_results(data_dir / f"{filename_stem}.txt", t, states, get_parameters(), metadata)
+        print(f"  Saved data to: {data_dir / filename_stem}.txt")
+        
+        plots_dir = Path(__file__).parent / "plots"
+        plots_dir.mkdir(parents=True, exist_ok=True)
+        
+        title_suffix = f" - A{test_number}: {test_name} ({controller_type.upper()})"
+        
+        fig1 = plot_time_series(t, states, control=control, disturbance=disturbance, title_suffix=title_suffix)
+        fig1.savefig(plots_dir / f"{filename_stem}_timeseries.png", dpi=150, bbox_inches='tight')
+        print(f"  Saved time series plot to: {plots_dir / filename_stem}_timeseries.png")
+        
+        fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
+        fig2.savefig(plots_dir / f"{filename_stem}_phase.png", dpi=150, bbox_inches='tight')
+        print(f"  Saved phase portrait to: {plots_dir / filename_stem}_phase.png")
+        
+        plt.close('all')
     
     if show_animation:
         title = f"Eval A{test_number}: {controller_type.upper()} - {test_name}"
@@ -200,6 +216,7 @@ def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_ai
             control=control,
             noise_std_x=noise_std_x,
             noise_std_theta=noise_std_theta,
+            disturbances=[disturbance],
             interval=20, skip_frames=2
         )
     
@@ -347,6 +364,7 @@ def run_eval_b(angle_deg, controller_type, duration=DEFAULT_DURATION, enable_air
             control=control,
             noise_std_x=noise_std_x,
             noise_std_theta=noise_std_theta,
+            disturbances=None,
             interval=20, skip_frames=2
         )
     

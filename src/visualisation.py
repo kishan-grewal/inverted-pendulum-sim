@@ -16,7 +16,7 @@ TEXTBOX_WIDTH = 0.15
 TEXTBOX_X_POS = 0.10
 
 
-def plot_time_series(t, states, control=None, title_suffix=""):
+def plot_time_series(t, states, control=None, disturbance=None, title_suffix=""):
     """
     Plot time series of all states and optionally control force.
     
@@ -24,6 +24,7 @@ def plot_time_series(t, states, control=None, title_suffix=""):
         t: time array [s]
         states: state array (N, 4) - [x, x_dot, theta, theta_dot]
         control: optional control force array (N,) [N]
+        disturbance: optional tuple (time, cart_impulse, angular_impulse)
         title_suffix: suffix to add to plot title
     """
     if control is not None:
@@ -76,18 +77,29 @@ def plot_time_series(t, states, control=None, title_suffix=""):
         axes_flat[4].axhline(y=0, color='gray', linestyle='--', alpha=0.5)
         axes_flat[4].grid(True, alpha=0.3)
         
-        # Control force derivative (rate of change)
-        dt = np.diff(t)
-        dt = np.where(dt == 0, 1e-6, dt)
-        dforce = np.diff(control) / dt
-        dforce = np.concatenate([[0], dforce])
-        
-        axes_flat[5].plot(t, dforce, 'm-', linewidth=1)
-        axes_flat[5].set_xlabel('Time [s]')
-        axes_flat[5].set_ylabel('Force rate dF/dt [N/s]')
-        axes_flat[5].set_title('Control Force Rate of Change')
-        axes_flat[5].axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-        axes_flat[5].grid(True, alpha=0.3)
+        # Disturbance plot (if provided)
+        if disturbance is not None:
+            dist_time, cart_impulse, angular_impulse = disturbance
+            
+            if angular_impulse != 0:
+                # A1/A2: Show angular disturbance on pendulum
+                axes_flat[5].axvline(x=dist_time, color='red', linewidth=3, alpha=0.7,
+                                    label=f'Impulse: {angular_impulse} N·s·m')
+                axes_flat[5].set_ylabel('Angular impulse [N·s·m]')
+                axes_flat[5].set_title('Pendulum Disturbance')
+                axes_flat[5].set_ylim(-0.1, 0.3)
+            else:
+                # A3: Show cart disturbance
+                axes_flat[5].axvline(x=dist_time, color='blue', linewidth=3, alpha=0.7,
+                                    label=f'Impulse: {cart_impulse} N·s')
+                axes_flat[5].set_ylabel('Cart impulse [N·s]')
+                axes_flat[5].set_title('Cart Disturbance')
+                axes_flat[5].set_ylim(-0.5, 4.0)
+            
+            axes_flat[5].set_xlabel('Time [s]')
+            axes_flat[5].set_xlim(t[0], t[-1])
+            axes_flat[5].grid(True, alpha=0.3)
+            axes_flat[5].legend(loc='upper right')
     
     plt.tight_layout()
     return fig
@@ -134,7 +146,8 @@ class CartPendulumAnimator:
                  pendulum_length=None, title="Cart-Pendulum Animation",
                  controller=None, observer=None, show_sliders=False,
                  initial_state=None, t_span=None, enable_air_drag=True,
-                 control=None, noise_std_x=0.002, noise_std_theta=0.005):
+                 control=None, noise_std_x=0.002, noise_std_theta=0.005,
+                 disturbances=None):
         self.t = t
         self.states = states
         self.control = control if control is not None else np.zeros(len(t))
@@ -145,6 +158,7 @@ class CartPendulumAnimator:
         self.controller = controller
         self.observer = observer
         self.show_sliders = show_sliders and (controller is not None or observer is not None)
+        self.disturbances = disturbances
 
         # Store simulation parameters for re-running
         self.initial_state = initial_state
@@ -173,7 +187,7 @@ class CartPendulumAnimator:
         self.ax_theta = None
         self.ax_x = None
         self.ax_force = None
-        self.ax_dforce = None
+        self.ax_disturbance = None
         self.anim = None
 
         # Textbox references
@@ -210,7 +224,7 @@ class CartPendulumAnimator:
             self.ax_theta = self.fig.add_axes([0.46, 0.55, 0.24, 0.35])
             self.ax_force = self.fig.add_axes([0.74, 0.55, 0.24, 0.35])
             self.ax_x = self.fig.add_axes([0.46, 0.10, 0.24, 0.35])
-            self.ax_dforce = self.fig.add_axes([0.74, 0.10, 0.24, 0.35])
+            self.ax_disturbance = self.fig.add_axes([0.74, 0.10, 0.24, 0.35])
 
             # Create textboxes based on controller type
             self._setup_textboxes()
@@ -221,7 +235,7 @@ class CartPendulumAnimator:
             self.ax_theta = self.fig.add_axes([0.50, 0.55, 0.22, 0.35])
             self.ax_force = self.fig.add_axes([0.76, 0.55, 0.22, 0.35])
             self.ax_x = self.fig.add_axes([0.50, 0.10, 0.22, 0.35])
-            self.ax_dforce = self.fig.add_axes([0.76, 0.10, 0.22, 0.35])
+            self.ax_disturbance = self.fig.add_axes([0.76, 0.10, 0.22, 0.35])
 
         self._setup_axes()
         self._setup_artists()
@@ -308,14 +322,6 @@ class CartPendulumAnimator:
         self.fig.text(0.03, 0.01,
                     "Enter values and press Enter to re-run simulation",
                     fontsize=9, style='italic', alpha=0.7)
-    
-    def _compute_dforce(self):
-        """Compute derivative of force (dF/dt)."""
-        dt = np.diff(self.t)
-        dt = np.where(dt == 0, 1e-6, dt)
-        dforce = np.diff(self.control[:len(self.t)]) / dt
-        # Pad to match length of t
-        return np.concatenate([[0], dforce])
 
     def _setup_axes(self):
         """Configure all axes."""
@@ -357,16 +363,31 @@ class CartPendulumAnimator:
         self.ax_force.grid(True, alpha=0.3)
         self.ax_force.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
 
-        # Configure dF/dt plot
-        self.dforce = self._compute_dforce()
-        self.ax_dforce.set_xlim(0, self.t[-1])
-        dforce_margin = max(abs(self.dforce.min()), abs(self.dforce.max()), 1) * 0.1
-        self.ax_dforce.set_ylim(self.dforce.min() - dforce_margin, self.dforce.max() + dforce_margin)
-        self.ax_dforce.set_xlabel('Time [s]')
-        self.ax_dforce.set_ylabel('dF/dt [N/s]')
-        self.ax_dforce.set_title('Force Rate of Change')
-        self.ax_dforce.grid(True, alpha=0.3)
-        self.ax_dforce.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+        # Configure disturbance plot
+        self.ax_disturbance.set_xlim(0, self.t[-1])
+        self.ax_disturbance.set_xlabel('Time [s]')
+        self.ax_disturbance.grid(True, alpha=0.3)
+        
+        if self.disturbances is not None and len(self.disturbances) > 0:
+            # Determine if we're showing cart or angular disturbance
+            first_disturbance = self.disturbances[0]
+            _, cart_impulse, angular_impulse = first_disturbance
+            
+            if angular_impulse != 0:
+                # Pendulum disturbance
+                self.ax_disturbance.set_ylabel('Angular [N·s·m]')
+                self.ax_disturbance.set_title('Pendulum Disturbance')
+                self.ax_disturbance.set_ylim(-0.1, 0.3)
+            else:
+                # Cart disturbance
+                self.ax_disturbance.set_ylabel('Cart [N·s]')
+                self.ax_disturbance.set_title('Cart Disturbance')
+                self.ax_disturbance.set_ylim(-0.5, 4.0)
+        else:
+            # No disturbance
+            self.ax_disturbance.set_ylabel('Force')
+            self.ax_disturbance.set_title('No Disturbance')
+            self.ax_disturbance.set_ylim(-1, 1)
     
     def _setup_artists(self):
         """Create all plot artists."""
@@ -405,13 +426,28 @@ class CartPendulumAnimator:
         self.theta_line, = self.ax_theta.plot([], [], 'r-', linewidth=1.5)
         self.x_line, = self.ax_x.plot([], [], 'b-', linewidth=1.5)
         self.force_line, = self.ax_force.plot([], [], 'g-', linewidth=1.5)
-        self.dforce_line, = self.ax_dforce.plot([], [], 'm-', linewidth=1.5)
+        
+        # Disturbance visualization
+        self.disturbance_lines = []
+        if self.disturbances is not None:
+            for dist_time, cart_impulse, angular_impulse in self.disturbances:
+                if angular_impulse != 0:
+                    line = self.ax_disturbance.axvline(x=dist_time, color='red', 
+                                                       linewidth=2, alpha=0.7,
+                                                       ymin=0, ymax=1,
+                                                       label=f'{angular_impulse} N·s·m @ {dist_time:.1f}s')
+                else:
+                    line = self.ax_disturbance.axvline(x=dist_time, color='blue',
+                                                       linewidth=2, alpha=0.7,
+                                                       ymin=0, ymax=1,
+                                                       label=f'{cart_impulse} N·s @ {dist_time:.1f}s')
+                self.disturbance_lines.append(line)
+            self.ax_disturbance.legend(loc='upper right', fontsize=8)
 
         # Current position markers
         self.theta_marker, = self.ax_theta.plot([], [], 'ro', markersize=8)
         self.x_marker, = self.ax_x.plot([], [], 'bo', markersize=8)
         self.force_marker, = self.ax_force.plot([], [], 'go', markersize=8)
-        self.dforce_marker, = self.ax_dforce.plot([], [], 'mo', markersize=8)
     
     def _on_textbox_submit(self, param_name, text):
         try:
@@ -468,7 +504,8 @@ class CartPendulumAnimator:
             enable_air_drag=self.enable_air_drag,
             observer=self.observer,
             noise_std_x=self.noise_std_x,
-            noise_std_theta=self.noise_std_theta
+            noise_std_theta=self.noise_std_theta,
+            disturbances=self.disturbances
         )
 
         self.t = results['t']
@@ -478,7 +515,6 @@ class CartPendulumAnimator:
         if len(control) < len(self.states):
             control = np.concatenate([[0.0], control])
         self.control = control
-        self.dforce = self._compute_dforce()
 
         self.current_frame = 0
 
@@ -495,26 +531,19 @@ class CartPendulumAnimator:
         force_margin = max(abs(force_data.min()), abs(force_data.max()), 1) * 0.1
         self.ax_force.set_ylim(force_data.min() - force_margin, force_data.max() + force_margin)
 
-        dforce_margin = max(abs(self.dforce.min()), abs(self.dforce.max()), 1) * 0.1
-        self.ax_dforce.set_ylim(self.dforce.min() - dforce_margin, self.dforce.max() + dforce_margin)
-
         self.theta_line.remove()
         self.x_line.remove()
         self.force_line.remove()
-        self.dforce_line.remove()
         self.theta_marker.remove()
         self.x_marker.remove()
         self.force_marker.remove()
-        self.dforce_marker.remove()
 
         self.theta_line, = self.ax_theta.plot([], [], 'r-', linewidth=1.5)
         self.x_line, = self.ax_x.plot([], [], 'b-', linewidth=1.5)
         self.force_line, = self.ax_force.plot([], [], 'g-', linewidth=1.5)
-        self.dforce_line, = self.ax_dforce.plot([], [], 'm-', linewidth=1.5)
         self.theta_marker, = self.ax_theta.plot([], [], 'ro', markersize=8)
         self.x_marker, = self.ax_x.plot([], [], 'bo', markersize=8)
         self.force_marker, = self.ax_force.plot([], [], 'go', markersize=8)
-        self.dforce_marker, = self.ax_dforce.plot([], [], 'mo', markersize=8)
 
         x0 = self.states[0, 0]
         theta0 = self.states[0, 2]
@@ -554,16 +583,14 @@ class CartPendulumAnimator:
         self.theta_line.set_data([], [])
         self.x_line.set_data([], [])
         self.force_line.set_data([], [])
-        self.dforce_line.set_data([], [])
         self.theta_marker.set_data([], [])
         self.x_marker.set_data([], [])
         self.force_marker.set_data([], [])
-        self.dforce_marker.set_data([], [])
 
         return (self.cart_patch, self.wheel_left, self.wheel_right,
                 self.pendulum_line, self.pivot_point, self.time_text,
-                self.theta_line, self.x_line, self.force_line, self.dforce_line,
-                self.theta_marker, self.x_marker, self.force_marker, self.dforce_marker)
+                self.theta_line, self.x_line, self.force_line,
+                self.theta_marker, self.x_marker, self.force_marker)
     
     def _update_animation(self, frame_idx):
         """Update animation for given frame."""
@@ -575,7 +602,6 @@ class CartPendulumAnimator:
         theta = self.states[frame, 2]
         t_current = self.t[frame]
         force_current = self.control[frame] if frame < len(self.control) else 0
-        dforce_current = self.dforce[frame] if frame < len(self.dforce) else 0
 
         # Cart position
         cart_x = x - self.cart_width / 2
@@ -608,22 +634,19 @@ class CartPendulumAnimator:
         theta_data = np.degrees(self.states[:frame + 1, 2])
         x_data = self.states[:frame + 1, 0]
         force_data = self.control[:frame + 1]
-        dforce_data = self.dforce[:frame + 1]
 
         self.theta_line.set_data(t_data, theta_data)
         self.x_line.set_data(t_data, x_data)
         self.force_line.set_data(t_data, force_data)
-        self.dforce_line.set_data(t_data, dforce_data)
 
         self.theta_marker.set_data([t_current], [theta_deg])
         self.x_marker.set_data([t_current], [x])
         self.force_marker.set_data([t_current], [force_current])
-        self.dforce_marker.set_data([t_current], [dforce_current])
 
         return (self.cart_patch, self.wheel_left, self.wheel_right,
                 self.pendulum_line, self.pivot_point, self.time_text,
-                self.theta_line, self.x_line, self.force_line, self.dforce_line,
-                self.theta_marker, self.x_marker, self.force_marker, self.dforce_marker)
+                self.theta_line, self.x_line, self.force_line,
+                self.theta_marker, self.x_marker, self.force_marker)
     
     def animate(self, interval=20, skip_frames=1, save_path=None):
         """Run the animation."""
@@ -658,7 +681,8 @@ class CartPendulumAnimator:
 def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
                         observer=None, show_sliders=False, initial_state=None,
                         t_span=None, enable_air_drag=True, control=None,
-                        noise_std_x=0.002, noise_std_theta=0.005, **kwargs):
+                        noise_std_x=0.002, noise_std_theta=0.005, 
+                        disturbances=None, **kwargs):
     """Animate from arrays with optional controller/observer for sliders."""
     animator = CartPendulumAnimator(
         t, states, title=title,
@@ -670,6 +694,7 @@ def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
         enable_air_drag=enable_air_drag,
         control=control,
         noise_std_x=noise_std_x,
-        noise_std_theta=noise_std_theta
+        noise_std_theta=noise_std_theta,
+        disturbances=disturbances
     )
     animator.animate(**kwargs)
