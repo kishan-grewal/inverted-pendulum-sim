@@ -7,7 +7,7 @@ from src.dynamics import get_parameters
 from src.controllers import LQRController, PIDController, PolePlacementController
 from src.observers import LuenbergerObserver
 from src.simulation import simulate, save_results
-from src.visualisation import animate_from_arrays
+from src.visualisation import animate_from_arrays, plot_time_series, plot_phase_portrait
 
 
 FORCE_LIMITS = (-15.0, 15.0)
@@ -39,7 +39,7 @@ def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
         enable_air_drag: include air drag in simulation
         show_animation: display animation window
         show_sliders: show controller/observer sliders
-        save: save results to file
+        save: save results and plots to file
         poles: desired closed-loop poles for pole placement controller
         use_observer: if True, use Luenberger observer with noisy measurements
         observer_poles: desired observer poles (default: 5x faster than controller)
@@ -132,10 +132,12 @@ def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
     print(f"  Max control force: {max_force:.2f} N")
     
     if save:
+        # Save data
         data_dir = Path(__file__).parent / "data"
         drag_str = "drag" if enable_air_drag else "nodrag"
         obs_str = "obs" if use_observer else "perfect"
-        filename = f"eval_b_{controller_type}_{drag_str}_{obs_str}_{abs(angle_deg)}deg.txt"
+        filename_stem = f"eval_b_{controller_type}_{drag_str}_{obs_str}_{abs(angle_deg)}deg"
+        
         metadata = {
             'Evaluation': 'B (Recovery)',
             'Controller': controller_type,
@@ -155,8 +157,24 @@ def run_eval_b(angle_deg, controller_type, duration=5.0, enable_air_drag=True,
             metadata['Noise std x [m]'] = noise_std_x
             metadata['Noise std theta [rad]'] = noise_std_theta
         
-        save_results(data_dir / filename, t, states, get_parameters(), metadata)
-        print(f"  Saved to: {data_dir / filename}")
+        save_results(data_dir / f"{filename_stem}.txt", t, states, get_parameters(), metadata)
+        print(f"  Saved data to: {data_dir / filename_stem}.txt")
+        
+        # Generate and save plots
+        plots_dir = Path(__file__).parent / "plots"
+        plots_dir.mkdir(parents=True, exist_ok=True)
+        
+        title_suffix = f" - B: Recovery from {angle_deg}° ({controller_type.upper()})"
+        
+        fig1 = plot_time_series(t, states, control=control, title_suffix=title_suffix)
+        fig1.savefig(plots_dir / f"{filename_stem}_timeseries.png", dpi=150, bbox_inches='tight')
+        print(f"  Saved time series plot to: {plots_dir / filename_stem}_timeseries.png")
+        
+        fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
+        fig2.savefig(plots_dir / f"{filename_stem}_phase.png", dpi=150, bbox_inches='tight')
+        print(f"  Saved phase portrait to: {plots_dir / filename_stem}_phase.png")
+        
+        plt.close('all')
     
     if show_animation:
         title = f"Eval B: {controller_type.upper()} from {angle_deg}°"
@@ -189,12 +207,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Evaluation B (Recovery)
   python main.py -B 15 --controller lqr
-  python main.py -B 15 --controller pid --sliders
+  python main.py -B 180 --controller pid --duration 10
+  
+  # With sliders for interactive tuning
+  python main.py -B 15 --controller lqr --sliders
   python main.py -B 15 --controller pole --sliders
+  
+  # With observer and noise
   python main.py -B 15 --controller lqr --observer --sliders
-  python main.py -B 15 --controller lqr --observer --observer-poles -15,-18,-20,-22
-  python main.py -B 15 --controller pid --no-drag
         """
     )
     parser.add_argument('-B', type=float, metavar='ANGLE',
@@ -221,7 +243,7 @@ Examples:
     parser.add_argument('--no-animation', action='store_true',
                         help='Disable animation')
     parser.add_argument('--no-save', action='store_true',
-                        help='Disable saving results')
+                        help='Disable saving results and plots')
     
     args = parser.parse_args()
 

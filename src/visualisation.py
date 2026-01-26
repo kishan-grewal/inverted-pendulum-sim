@@ -42,42 +42,78 @@ def load_results(filepath):
     return np.array(t_list), np.array(states_list), metadata
 
 
-def plot_time_series(t, states, title_suffix=""):
-    """Plot time series of all states."""
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+def plot_time_series(t, states, control=None, title_suffix=""):
+    """
+    Plot time series of all states and optionally control force.
+    
+    Args:
+        t: time array [s]
+        states: state array (N, 4) - [x, x_dot, theta, theta_dot]
+        control: optional control force array (N,) [N]
+        title_suffix: suffix to add to plot title
+    """
+    if control is not None:
+        fig, axes = plt.subplots(3, 2, figsize=(14, 10))
+    else:
+        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    
     fig.suptitle(f"Cart-Pendulum Time Series{title_suffix}")
     
+    axes_flat = axes.flatten()
+    
     # Cart position
-    axes[0, 0].plot(t, states[:, 0], 'b-', linewidth=1)
-    axes[0, 0].set_xlabel('Time [s]')
-    axes[0, 0].set_ylabel('Cart position x [m]')
-    axes[0, 0].set_title('Cart Position')
-    axes[0, 0].grid(True, alpha=0.3)
+    axes_flat[0].plot(t, states[:, 0], 'b-', linewidth=1)
+    axes_flat[0].set_xlabel('Time [s]')
+    axes_flat[0].set_ylabel('Cart position x [m]')
+    axes_flat[0].set_title('Cart Position')
+    axes_flat[0].grid(True, alpha=0.3)
     
     # Cart velocity
-    axes[0, 1].plot(t, states[:, 1], 'b-', linewidth=1)
-    axes[0, 1].set_xlabel('Time [s]')
-    axes[0, 1].set_ylabel('Cart velocity ẋ [m/s]')
-    axes[0, 1].set_title('Cart Velocity')
-    axes[0, 1].grid(True, alpha=0.3)
+    axes_flat[1].plot(t, states[:, 1], 'b-', linewidth=1)
+    axes_flat[1].set_xlabel('Time [s]')
+    axes_flat[1].set_ylabel('Cart velocity ẋ [m/s]')
+    axes_flat[1].set_title('Cart Velocity')
+    axes_flat[1].grid(True, alpha=0.3)
     
     # Pendulum angle
     theta_deg = np.degrees(states[:, 2])
-    axes[1, 0].plot(t, theta_deg, 'r-', linewidth=1)
-    axes[1, 0].set_xlabel('Time [s]')
-    axes[1, 0].set_ylabel('Pendulum angle θ [°]')
-    axes[1, 0].set_title('Pendulum Angle')
-    axes[1, 0].axhline(y=0, color='g', linestyle='--', alpha=0.5, label='Upright')
-    axes[1, 0].grid(True, alpha=0.3)
-    axes[1, 0].legend()
+    axes_flat[2].plot(t, theta_deg, 'r-', linewidth=1)
+    axes_flat[2].set_xlabel('Time [s]')
+    axes_flat[2].set_ylabel('Pendulum angle θ [°]')
+    axes_flat[2].set_title('Pendulum Angle')
+    axes_flat[2].axhline(y=0, color='g', linestyle='--', alpha=0.5, label='Upright')
+    axes_flat[2].grid(True, alpha=0.3)
+    axes_flat[2].legend()
     
     # Pendulum angular velocity
     theta_dot_deg = np.degrees(states[:, 3])
-    axes[1, 1].plot(t, theta_dot_deg, 'r-', linewidth=1)
-    axes[1, 1].set_xlabel('Time [s]')
-    axes[1, 1].set_ylabel('Angular velocity θ̇ [°/s]')
-    axes[1, 1].set_title('Pendulum Angular Velocity')
-    axes[1, 1].grid(True, alpha=0.3)
+    axes_flat[3].plot(t, theta_dot_deg, 'r-', linewidth=1)
+    axes_flat[3].set_xlabel('Time [s]')
+    axes_flat[3].set_ylabel('Angular velocity θ̇ [°/s]')
+    axes_flat[3].set_title('Pendulum Angular Velocity')
+    axes_flat[3].grid(True, alpha=0.3)
+    
+    # Control force (if provided)
+    if control is not None:
+        axes_flat[4].plot(t, control, 'g-', linewidth=1)
+        axes_flat[4].set_xlabel('Time [s]')
+        axes_flat[4].set_ylabel('Control force F [N]')
+        axes_flat[4].set_title('Control Force')
+        axes_flat[4].axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+        axes_flat[4].grid(True, alpha=0.3)
+        
+        # Control force derivative (rate of change)
+        dt = np.diff(t)
+        dt = np.where(dt == 0, 1e-6, dt)
+        dforce = np.diff(control) / dt
+        dforce = np.concatenate([[0], dforce])
+        
+        axes_flat[5].plot(t, dforce, 'm-', linewidth=1)
+        axes_flat[5].set_xlabel('Time [s]')
+        axes_flat[5].set_ylabel('Force rate dF/dt [N/s]')
+        axes_flat[5].set_title('Control Force Rate of Change')
+        axes_flat[5].axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+        axes_flat[5].grid(True, alpha=0.3)
     
     plt.tight_layout()
     return fig
@@ -124,8 +160,8 @@ def plot_from_file(filepath, show=True, save=False):
     angle = metadata.get('initial_angle_deg', '?')
     title_suffix = f" (θ₀ = {angle}°)"
     
-    fig1 = plot_time_series(t, states, title_suffix)
-    fig2 = plot_phase_portrait(states, title_suffix)
+    fig1 = plot_time_series(t, states, title_suffix=title_suffix)
+    fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
     
     if save:
         plots_dir = Path(filepath).parent.parent / "plots"
