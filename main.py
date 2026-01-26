@@ -6,7 +6,7 @@ from pathlib import Path
 from src.dynamics import get_parameters
 from src.controllers import LQRController, PIDController, PolePlacementController
 from src.observers import LuenbergerObserver
-from src.simulation import simulate, save_results, DEFAULT_NOISE_STD_X, DEFAULT_NOISE_STD_THETA
+from src.simulation import simulate, DEFAULT_NOISE_STD_X, DEFAULT_NOISE_STD_THETA
 from src.visualisation import animate_from_arrays, plot_time_series, plot_phase_portrait
 
 
@@ -34,19 +34,29 @@ def create_controller(controller_type, poles=None):
         return PolePlacementController(poles=poles, output_limits=FORCE_LIMITS)
 
 
+def save_results(filepath, t, states, control, eval_name, settling_time, max_deviation, max_force):
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(filepath, 'w') as f:
+        f.write(f"# Evaluation: {eval_name}\n")
+        f.write(f"# Settling time: {settling_time}\n")
+        f.write(f"# Max deviation: {max_deviation:.2f}°\n")
+        f.write(f"# Max force: {max_force:.2f} N\n")
+        f.write("#\n")
+        f.write("# Columns: t [s], x [m], x_dot [m/s], theta [rad], theta_dot [rad/s], F [N]\n")
+        f.write("#\n")
+        
+        for i in range(len(t)):
+            f.write(f"{t[i]:.6f}\t{states[i, 0]:.6f}\t{states[i, 1]:.6f}\t"
+                    f"{states[i, 2]:.6f}\t{states[i, 3]:.6f}\t{control[i]:.6f}\n")
+
+
 def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_air_drag=True,
                show_animation=True, show_sliders=False, save=True, poles=None,
                use_observer=False, observer_poles=None, 
                noise_std_x=DEFAULT_NOISE_STD_X,
                noise_std_theta=DEFAULT_NOISE_STD_THETA):
-    """
-    Run Evaluation A: Disturbance rejection from stable equilibrium.
-    
-    Args:
-        test_number: 1 (small tap), 2 (large tap), or 3 (cart shove)
-        controller_type: 'lqr', 'pid', or 'pole'
-        duration: simulation duration [s]
-    """
     test_configs = {
         1: ("Small tap on pendulum", EVAL_A1_DISTURBANCE),
         2: ("Large tap on pendulum", EVAL_A2_DISTURBANCE),
@@ -60,38 +70,17 @@ def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_ai
     disturbance_time = disturbance[0]
     
     print(f"Evaluation A{test_number}: {test_name}")
-    print(f"  Controller: {controller_type.upper()}")
-    print(f"  Disturbance at t={disturbance_time}s: cart={disturbance[1]}N·s, angular={disturbance[2]}N·s·m")
-    print(f"  Air drag: {'enabled' if enable_air_drag else 'disabled'}")
-    print(f"  Observer: {'enabled' if use_observer else 'disabled'}")
-    if use_observer:
-        print(f"  Noise: σ_x={noise_std_x:.4f}m, σ_θ={noise_std_theta:.2f}°")
-    print("-" * 50)
+    print(f"Controller: {controller_type.upper()}")
     
     # Start at stable equilibrium (upright, stationary)
     initial_state = np.array([0.0, 0.0, 0.0, 0.0])
     t_span = (0.0, duration)
     
     controller = create_controller(controller_type, poles=poles)
-    
-    # Print controller info
-    info = controller.get_info()
-    print(f"  Controller parameters:")
-    for key, value in info.items():
-        if key != 'type':
-            print(f"    {key}: {value}")
-    
-    # Create observer if requested
     observer = None
     if use_observer:
         observer = LuenbergerObserver(observer_poles=observer_poles)
-        obs_info = observer.get_info()
-        print(f"  Observer parameters:")
-        for key, value in obs_info.items():
-            if key != 'type':
-                print(f"    {key}: {value}")
     
-    print("Running simulation with disturbance...")
     results = simulate(
         initial_state, t_span,
         controller=controller,
@@ -132,20 +121,7 @@ def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_ai
     # Max control force
     max_force = np.max(np.abs(control))
     
-    if use_observer and 'estimates' in results:
-        estimates = results['estimates']
-        if len(estimates) < len(states):
-            estimates = np.vstack([initial_state, estimates])
-        
-        estimation_error = states - estimates
-        rms_error_x = np.sqrt(np.mean(estimation_error[:, 0]**2))
-        rms_error_theta = np.sqrt(np.mean(estimation_error[:, 2]**2))
-        print(f"\nEstimation error (RMS):")
-        print(f"  Position: {rms_error_x*1000:.2f} mm")
-        print(f"  Angle: {np.degrees(rms_error_theta):.2f}°")
-    
     print(f"\nResults:")
-    print(f"  Disturbance applied at: t={disturbance_time:.2f}s")
     print(f"  Max angle deviation: {max_deviation:.2f}°")
     if fell:
         print(f"  Status: FAILED - Pendulum fell over")
@@ -154,34 +130,18 @@ def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_ai
         print(f"  Status: SUCCESS")
     else:
         print(f"  Settling time: Did not settle within {duration}s")
-        print(f"  Status: PARTIAL - Stabilized but slow")
-    print(f"  Max control force: {max_force:.2f} N")
+    print(f"  Max control force: {max_force:.2f} N\n")
     
     if save:
         data_dir = Path(__file__).parent / "data"
         drag_str = "drag" if enable_air_drag else "nodrag"
         obs_str = "obs" if use_observer else "perfect"
-        filename_stem = f"eval_a{test_number}_{controller_type}_{drag_str}_{obs_str}"
+        filename = f"eval_a{test_number}_{controller_type}_{drag_str}_{obs_str}.txt"
         
-        metadata = {
-            'Evaluation': f'A{test_number} ({test_name})',
-            'Controller': controller_type,
-            'Air drag': enable_air_drag,
-            'Observer': use_observer,
-            'Disturbance time [s]': disturbance_time,
-            'Max deviation [deg]': max_deviation,
-            'Settling time [s]': settling_time if settling_time else 'N/A',
-            'Fell': fell,
-            'Max control force [N]': max_force,
-        }
-        metadata.update({f'Controller {k}': v for k, v in info.items()})
-        if use_observer:
-            metadata.update({f'Observer {k}': v for k, v in obs_info.items()})
-            metadata['Noise std x [m]'] = noise_std_x
-            metadata['Noise std theta [deg]'] = noise_std_theta
+        eval_name = f"A{test_number}: {test_name} ({controller_type.upper()})"
+        settling_str = f"{settling_time:.2f}s" if settling_time else "N/A"
         
-        save_results(data_dir / f"{filename_stem}.txt", t, states, get_parameters(), metadata)
-        print(f"  Saved data to: {data_dir / filename_stem}.txt")
+        save_results(data_dir / filename, t, states, control, eval_name, settling_str, max_deviation, max_force)
         
         plots_dir = Path(__file__).parent / "plots"
         plots_dir.mkdir(parents=True, exist_ok=True)
@@ -189,12 +149,10 @@ def run_eval_a(test_number, controller_type, duration=EVAL_A_DURATION, enable_ai
         title_suffix = f" - A{test_number}: {test_name} ({controller_type.upper()})"
         
         fig1 = plot_time_series(t, states, control=control, disturbance=disturbance, title_suffix=title_suffix)
-        fig1.savefig(plots_dir / f"{filename_stem}_timeseries.png", dpi=150, bbox_inches='tight')
-        print(f"  Saved time series plot to: {plots_dir / filename_stem}_timeseries.png")
+        fig1.savefig(plots_dir / filename.replace('.txt', '_timeseries.png'), dpi=150, bbox_inches='tight')
         
         fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
-        fig2.savefig(plots_dir / f"{filename_stem}_phase.png", dpi=150, bbox_inches='tight')
-        print(f"  Saved phase portrait to: {plots_dir / filename_stem}_phase.png")
+        fig2.savefig(plots_dir / filename.replace('.txt', '_phase.png'), dpi=150, bbox_inches='tight')
         
         plt.close('all')
     
@@ -229,34 +187,17 @@ def run_eval_b(angle_deg, controller_type, duration=DEFAULT_DURATION, enable_air
                noise_std_x=DEFAULT_NOISE_STD_X,
                noise_std_theta=DEFAULT_NOISE_STD_THETA):
     print(f"Evaluation B: Recovery from {angle_deg}°")
-    print(f"  Controller: {controller_type.upper()}")
-    print(f"  Air drag: {'enabled' if enable_air_drag else 'disabled'}")
-    print(f"  Observer: {'enabled' if use_observer else 'disabled'}")
-    if use_observer:
-        print(f"  Noise: σ_x={noise_std_x:.4f}m, σ_θ={noise_std_theta:.2f}°")
-    print("-" * 50)
+    print(f"Controller: {controller_type.upper()}")
 
     theta_0 = np.radians(angle_deg)
     initial_state = np.array([0.0, 0.0, theta_0, 0.0])
     t_span = (0.0, duration)
 
     controller = create_controller(controller_type, poles=poles)
-    info = controller.get_info()
-    print(f"  Controller parameters:")
-    for key, value in info.items():
-        if key != 'type':
-            print(f"    {key}: {value}")
-    
     observer = None
     if use_observer:
         observer = LuenbergerObserver(observer_poles=observer_poles)
-        obs_info = observer.get_info()
-        print(f"  Observer parameters:")
-        for key, value in obs_info.items():
-            if key != 'type':
-                print(f"    {key}: {value}")
     
-    print("Running simulation...")
     results = simulate(initial_state, t_span, controller=controller, 
                        enable_air_drag=enable_air_drag, observer=observer,
                        noise_std_x=noise_std_x, noise_std_theta=noise_std_theta)
@@ -281,55 +222,26 @@ def run_eval_b(angle_deg, controller_type, duration=DEFAULT_DURATION, enable_air
     settling_time = t[settling_idx] if settling_idx else None
     
     max_force = np.max(np.abs(control[:len(t)]))
-    
-    if use_observer and 'estimates' in results:
-        estimates = results['estimates']
-        if len(estimates) < len(states):
-            estimates = np.vstack([initial_state, estimates])
-        
-        estimation_error = states - estimates
-        rms_error_x = np.sqrt(np.mean(estimation_error[:, 0]**2))
-        rms_error_theta = np.sqrt(np.mean(estimation_error[:, 2]**2))
-        print(f"\nEstimation error (RMS):")
-        print(f"  Position: {rms_error_x*1000:.2f} mm")
-        print(f"  Angle: {np.degrees(rms_error_theta):.2f}°")
+    max_deviation = np.abs(angle_deg)
     
     print(f"\nResults:")
-    print(f"  Initial angle: {angle_deg}°")
     print(f"  Stabilised: {'Yes' if stabilised else 'No'}")
     if settling_time:
-        print(f"  Settling time: {settling_time:.2f} s")
+        print(f"  Settling time: {settling_time:.2f}s")
     else:
         print(f"  Settling time: Did not settle")
-    print(f"  Final angle: {np.degrees(states[-1, 2]):.2f}°")
-    print(f"  Final cart position: {states[-1, 0]:.3f} m")
-    print(f"  Max control force: {max_force:.2f} N")
+    print(f"  Max control force: {max_force:.2f} N\n")
     
     if save:
         data_dir = Path(__file__).parent / "data"
         drag_str = "drag" if enable_air_drag else "nodrag"
         obs_str = "obs" if use_observer else "perfect"
-        filename_stem = f"eval_b_{controller_type}_{drag_str}_{obs_str}_{abs(angle_deg)}deg"
+        filename = f"eval_b_{controller_type}_{drag_str}_{obs_str}_{abs(angle_deg)}deg.txt"
         
-        metadata = {
-            'Evaluation': 'B (Recovery)',
-            'Controller': controller_type,
-            'Air drag': enable_air_drag,
-            'Observer': use_observer,
-            'Initial angle [deg]': angle_deg,
-            'Stabilised': stabilised,
-            'Settling time [s]': settling_time if settling_time else 'N/A',
-            'Max control force [N]': max_force,
-        }
-        metadata.update({f'Controller {k}': v for k, v in info.items()})
+        eval_name = f"B: Recovery from {angle_deg}° ({controller_type.upper()})"
+        settling_str = f"{settling_time:.2f}s" if settling_time else "N/A"
         
-        if use_observer:
-            metadata.update({f'Observer {k}': v for k, v in obs_info.items()})
-            metadata['Noise std x [m]'] = noise_std_x
-            metadata['Noise std theta [deg]'] = noise_std_theta
-        
-        save_results(data_dir / f"{filename_stem}.txt", t, states, get_parameters(), metadata)
-        print(f"  Saved data to: {data_dir / filename_stem}.txt")
+        save_results(data_dir / filename, t, states, control, eval_name, settling_str, max_deviation, max_force)
         
         plots_dir = Path(__file__).parent / "plots"
         plots_dir.mkdir(parents=True, exist_ok=True)
@@ -337,12 +249,10 @@ def run_eval_b(angle_deg, controller_type, duration=DEFAULT_DURATION, enable_air
         title_suffix = f" - B: Recovery from {angle_deg}° ({controller_type.upper()})"
         
         fig1 = plot_time_series(t, states, control=control, title_suffix=title_suffix)
-        fig1.savefig(plots_dir / f"{filename_stem}_timeseries.png", dpi=150, bbox_inches='tight')
-        print(f"  Saved time series plot to: {plots_dir / filename_stem}_timeseries.png")
+        fig1.savefig(plots_dir / filename.replace('.txt', '_timeseries.png'), dpi=150, bbox_inches='tight')
         
         fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
-        fig2.savefig(plots_dir / f"{filename_stem}_phase.png", dpi=150, bbox_inches='tight')
-        print(f"  Saved phase portrait to: {plots_dir / filename_stem}_phase.png")
+        fig2.savefig(plots_dir / filename.replace('.txt', '_phase.png'), dpi=150, bbox_inches='tight')
         
         plt.close('all')
     
@@ -421,66 +331,37 @@ def main():
     else:
         duration = DEFAULT_DURATION
 
+    # Set duration based on evaluation type
+    if args.duration is not None:
+        duration = args.duration
+    elif args.A1 or args.A2 or args.A3:
+        duration = EVAL_A_DURATION
+    else:
+        duration = DEFAULT_DURATION
+
+    # Common kwargs for all evaluations
+    common_kwargs = {
+        'controller_type': args.controller,
+        'duration': duration,
+        'enable_air_drag': not args.no_drag,
+        'show_animation': not args.no_animation,
+        'show_sliders': args.textboxes,
+        'save': not args.no_save,
+        'poles': poles,
+        'use_observer': args.observer,
+        'observer_poles': observer_poles,
+        'noise_std_x': args.noise_x,
+        'noise_std_theta': args.noise_theta,
+    }
+
     if args.A1:
-        run_eval_a(
-            test_number=1,
-            controller_type=args.controller,
-            duration=duration,
-            enable_air_drag=not args.no_drag,
-            show_animation=not args.no_animation,
-            show_sliders=args.textboxes,
-            save=not args.no_save,
-            poles=poles,
-            use_observer=args.observer,
-            observer_poles=observer_poles,
-            noise_std_x=args.noise_x,
-            noise_std_theta=args.noise_theta,
-        )
+        run_eval_a(test_number=1, **common_kwargs)
     elif args.A2:
-        run_eval_a(
-            test_number=2,
-            controller_type=args.controller,
-            duration=duration,
-            enable_air_drag=not args.no_drag,
-            show_animation=not args.no_animation,
-            show_sliders=args.textboxes,
-            save=not args.no_save,
-            poles=poles,
-            use_observer=args.observer,
-            observer_poles=observer_poles,
-            noise_std_x=args.noise_x,
-            noise_std_theta=args.noise_theta,
-        )
+        run_eval_a(test_number=2, **common_kwargs)
     elif args.A3:
-        run_eval_a(
-            test_number=3,
-            controller_type=args.controller,
-            duration=duration,
-            enable_air_drag=not args.no_drag,
-            show_animation=not args.no_animation,
-            show_sliders=args.textboxes,
-            save=not args.no_save,
-            poles=poles,
-            use_observer=args.observer,
-            observer_poles=observer_poles,
-            noise_std_x=args.noise_x,
-            noise_std_theta=args.noise_theta,
-        )
+        run_eval_a(test_number=3, **common_kwargs)
     elif args.B is not None:
-        run_eval_b(
-            angle_deg=args.B,
-            controller_type=args.controller,
-            duration=duration,
-            enable_air_drag=not args.no_drag,
-            show_animation=not args.no_animation,
-            show_sliders=args.textboxes,
-            save=not args.no_save,
-            poles=poles,
-            use_observer=args.observer,
-            observer_poles=observer_poles,
-            noise_std_x=args.noise_x,
-            noise_std_theta=args.noise_theta,
-        )
+        run_eval_b(angle_deg=args.B, **common_kwargs)
     else:
         parser.print_help()
 
