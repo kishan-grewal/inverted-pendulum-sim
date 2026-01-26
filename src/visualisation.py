@@ -9,12 +9,11 @@ from src.dynamics import get_parameters, L_rod
 
 
 # ===== TEXTBOX LAYOUT CONSTANTS =====
-TEXTBOX_Y_START = 0.27
+TEXTBOX_Y_START = 0.25
 TEXTBOX_HEIGHT = 0.025
 TEXTBOX_SPACING = 0.035
 TEXTBOX_WIDTH = 0.15
 TEXTBOX_X_POS = 0.10
-# ====================================
 
 
 def load_results(filepath):
@@ -164,7 +163,7 @@ class CartPendulumAnimator:
                  pendulum_length=None, title="Cart-Pendulum Animation",
                  controller=None, observer=None, show_sliders=False,
                  initial_state=None, t_span=None, enable_air_drag=True,
-                 control=None, noise_std_x=0.002, noise_std_theta=0.005):
+                 control=None, noise_std_x=0.002, noise_std_theta=0.29):
         self.t = t
         self.states = states
         self.control = control if control is not None else np.zeros(len(t))
@@ -325,14 +324,14 @@ class CartPendulumAnimator:
         
         if self.observer is not None:
             ax_noise_x = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
-            self.textboxes['noise_x'] = TextBox(ax_noise_x, 'Noise σ_x [mm]', 
-                                                 initial=str(self.noise_std_x * 1000))
+            self.textboxes['noise_x'] = TextBox(ax_noise_x, 'Noise σ_x [m]', 
+                                                 initial=str(self.noise_std_x))
             self.textboxes['noise_x'].on_submit(lambda text: self._on_textbox_submit('noise_x', text))
             current_y -= TEXTBOX_SPACING
             
             ax_noise_theta = self.fig.add_axes([TEXTBOX_X_POS, current_y, TEXTBOX_WIDTH, TEXTBOX_HEIGHT])
             self.textboxes['noise_theta'] = TextBox(ax_noise_theta, 'Noise σ_θ [°]',
-                                                     initial=str(np.degrees(self.noise_std_theta)))
+                                                     initial=str(self.noise_std_theta))
             self.textboxes['noise_theta'].on_submit(lambda text: self._on_textbox_submit('noise_theta', text))
         
         self.fig.text(0.03, 0.01,
@@ -434,7 +433,14 @@ class CartPendulumAnimator:
             print(f"Invalid input for {param_name}: '{text}' (must be a number)")
             return
 
-        if self.controller is not None:
+        # Handle noise parameters FIRST (before controller/observer checks)
+        if param_name == 'noise_x':
+            self.noise_std_x = value
+        elif param_name == 'noise_theta':
+            self.noise_std_theta = value
+        
+        # Then handle controller parameters
+        elif self.controller is not None:
             if self.controller_type == 'pid':
                 if param_name == 'Kp':
                     self.controller.set_gains(Kp=value)
@@ -457,12 +463,7 @@ class CartPendulumAnimator:
                 elif param_name == 'pole4':
                     self.controller.set_poles(pole4=value)
 
-        if self.observer is not None:
-            if param_name == 'noise_x':
-                self.noise_std_x = value / 1000
-            elif param_name == 'noise_theta':
-                self.noise_std_theta = np.radians(value)
-
+        # Reset and re-run simulation
         if self.controller is not None:
             self.controller.reset()
         if self.observer is not None:
@@ -665,7 +666,7 @@ def animate_from_file(filepath, **kwargs):
 def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
                         observer=None, show_sliders=False, initial_state=None,
                         t_span=None, enable_air_drag=True, control=None,
-                        noise_std_x=0.002, noise_std_theta=0.005, **kwargs):
+                        noise_std_x=0.002, noise_std_theta=0.29, **kwargs):
     animator = CartPendulumAnimator(
         t, states, title=title,
         controller=controller,

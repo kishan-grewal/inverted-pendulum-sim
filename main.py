@@ -6,16 +6,12 @@ from pathlib import Path
 from src.dynamics import get_parameters
 from src.controllers import LQRController, PIDController, PolePlacementController
 from src.observers import LuenbergerObserver
-from src.simulation import simulate, save_results
+from src.simulation import simulate, save_results, DEFAULT_NOISE_STD_X, DEFAULT_NOISE_STD_THETA
 from src.visualisation import animate_from_arrays, plot_time_series, plot_phase_portrait
 
 
 # ===== SYSTEM CONSTRAINTS =====
-FORCE_LIMITS = (-15.0, 15.0)
-
-# ===== SENSOR NOISE DEFAULTS =====
-DEFAULT_NOISE_STD_X = 0.002  # [m] position measurement noise
-DEFAULT_NOISE_STD_THETA = 0.005  # [rad] angle measurement noise
+FORCE_LIMITS = (-15.0, 15.0)  # [N]
 
 # ===== SIMULATION DEFAULTS =====
 DEFAULT_DURATION = 5.0  # [s]
@@ -40,7 +36,7 @@ def run_eval_b(angle_deg, controller_type, duration=DEFAULT_DURATION, enable_air
     print(f"  Air drag: {'enabled' if enable_air_drag else 'disabled'}")
     print(f"  Observer: {'enabled' if use_observer else 'disabled'}")
     if use_observer:
-        print(f"  Noise: σ_x={noise_std_x*1000:.1f}mm, σ_θ={np.degrees(noise_std_theta):.2f}°")
+        print(f"  Noise: σ_x={noise_std_x:.4f}m, σ_θ={noise_std_theta:.2f}°")
     print("-" * 50)
 
     theta_0 = np.radians(angle_deg)
@@ -133,7 +129,7 @@ def run_eval_b(angle_deg, controller_type, duration=DEFAULT_DURATION, enable_air
         if use_observer:
             metadata.update({f'Observer {k}': v for k, v in obs_info.items()})
             metadata['Noise std x [m]'] = noise_std_x
-            metadata['Noise std theta [rad]'] = noise_std_theta
+            metadata['Noise std theta [deg]'] = noise_std_theta
         
         save_results(data_dir / f"{filename_stem}.txt", t, states, get_parameters(), metadata)
         print(f"  Saved data to: {data_dir / filename_stem}.txt")
@@ -181,21 +177,14 @@ def main():
     parser = argparse.ArgumentParser(
         description='Cart-Pendulum Control Evaluation',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py -B 15 --controller lqr
-  python main.py -B 180 --controller pid --duration 10
-  python main.py -B 15 --controller lqr --sliders
-  python main.py -B 15 --controller lqr --observer --sliders
-        """
     )
     parser.add_argument('-B', type=float, metavar='ANGLE')
     parser.add_argument('--controller', type=str, required=True, choices=['lqr', 'pid', 'pole'])
     parser.add_argument('--poles', type=str, default=None)
     parser.add_argument('--observer', action='store_true')
     parser.add_argument('--observer-poles', type=str, default=None)
-    parser.add_argument('--noise-x', type=float, default=DEFAULT_NOISE_STD_X)
-    parser.add_argument('--noise-theta', type=float, default=DEFAULT_NOISE_STD_THETA)
+    parser.add_argument('--noise-x', type=float, default=DEFAULT_NOISE_STD_X, help='Position noise [m]')
+    parser.add_argument('--noise-theta', type=float, default=DEFAULT_NOISE_STD_THETA, help='Angle noise [deg]')
     parser.add_argument('--duration', type=float, default=DEFAULT_DURATION)
     parser.add_argument('--no-drag', action='store_true')
     parser.add_argument('--sliders', action='store_true')

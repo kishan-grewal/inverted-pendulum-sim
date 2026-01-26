@@ -7,8 +7,8 @@ from src.dynamics import state_derivative, get_parameters
 
 # ===== SIMULATION DEFAULTS =====
 DEFAULT_DT = 0.01  # [s] integration timestep
-DEFAULT_NOISE_STD_X = 0.002  # [m] position measurement noise
-DEFAULT_NOISE_STD_THETA = 0.005  # [rad] angle measurement noise
+DEFAULT_NOISE_STD_X = 0.01  # [m] position measurement noise
+DEFAULT_NOISE_STD_THETA = 0.5  # [deg] angle measurement noise (was 0.005 rad)
 
 
 def add_sensor_noise(true_state, noise_std_x=DEFAULT_NOISE_STD_X, 
@@ -17,7 +17,8 @@ def add_sensor_noise(true_state, noise_std_x=DEFAULT_NOISE_STD_X,
     theta_true = true_state[2]
     
     x_measured = x_true + np.random.normal(0, noise_std_x)
-    theta_measured = theta_true + np.random.normal(0, noise_std_theta)
+    # Convert noise_std_theta from degrees to radians for internal use
+    theta_measured = theta_true + np.random.normal(0, np.radians(noise_std_theta))
     
     return np.array([x_measured, theta_measured])
 
