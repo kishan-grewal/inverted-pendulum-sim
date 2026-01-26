@@ -178,16 +178,23 @@ def main():
         description='Cart-Pendulum Control Evaluation',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    # main arguments
     parser.add_argument('-B', type=float, metavar='ANGLE')
     parser.add_argument('--controller', type=str, required=True, choices=['lqr', 'pid', 'pole'])
     parser.add_argument('--poles', type=str, default=None)
-    parser.add_argument('--observer', action='store_true')
+    parser.add_argument('--textboxes', action='store_false')
+
+    # observer arguments
+    parser.add_argument('--observer', action='store_false')
     parser.add_argument('--observer-poles', type=str, default=None)
+
+    # noise arguments
     parser.add_argument('--noise-x', type=float, default=DEFAULT_NOISE_STD_X, help='Position noise [m]')
     parser.add_argument('--noise-theta', type=float, default=DEFAULT_NOISE_STD_THETA, help='Angle noise [deg]')
+
+    # other arguments
     parser.add_argument('--duration', type=float, default=DEFAULT_DURATION)
     parser.add_argument('--no-drag', action='store_true')
-    parser.add_argument('--sliders', action='store_true')
     parser.add_argument('--no-animation', action='store_true')
     parser.add_argument('--no-save', action='store_true')
     
@@ -208,7 +215,7 @@ def main():
             duration=args.duration,
             enable_air_drag=not args.no_drag,
             show_animation=not args.no_animation,
-            show_sliders=args.sliders,
+            show_sliders=args.textboxes,
             save=not args.no_save,
             poles=poles,
             use_observer=args.observer,

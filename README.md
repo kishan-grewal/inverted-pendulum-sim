@@ -14,5 +14,5 @@ pip install -r requirements.txt
 ```
 
 TO-DO:
-- [ ] Change units of noise to be clearer for the textboxes
+- [x] Change units of noise to be clearer for the textboxes
 - [ ] Add evaluation A code
