@@ -432,15 +432,15 @@ class CartPendulumAnimator:
         if self.disturbances is not None:
             for dist_time, cart_impulse, angular_impulse in self.disturbances:
                 if angular_impulse != 0:
-                    line = self.ax_disturbance.axvline(x=dist_time, color='red', 
-                                                       linewidth=2, alpha=0.7,
-                                                       ymin=0, ymax=1,
-                                                       label=f'{angular_impulse} N·s·m @ {dist_time:.1f}s')
+                    # Vertical line from 0 to impulse magnitude
+                    line = self.ax_disturbance.vlines(x=dist_time, ymin=0, ymax=angular_impulse,
+                                                      colors='red', linewidth=3, alpha=0.7,
+                                                      label=f'{angular_impulse} N·s·m @ {dist_time:.1f}s')
                 else:
-                    line = self.ax_disturbance.axvline(x=dist_time, color='blue',
-                                                       linewidth=2, alpha=0.7,
-                                                       ymin=0, ymax=1,
-                                                       label=f'{cart_impulse} N·s @ {dist_time:.1f}s')
+                    # Vertical line from 0 to impulse magnitude
+                    line = self.ax_disturbance.vlines(x=dist_time, ymin=0, ymax=cart_impulse,
+                                                      colors='blue', linewidth=3, alpha=0.7,
+                                                      label=f'{cart_impulse} N·s @ {dist_time:.1f}s')
                 self.disturbance_lines.append(line)
             self.ax_disturbance.legend(loc='upper right', fontsize=8)
 

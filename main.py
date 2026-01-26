@@ -20,9 +20,9 @@ DEFAULT_DURATION = 5.0  # [s]
 # Format: (time [s], cart_impulse [N·s], angular_impulse [N·s·m])
 EVAL_A1_DISTURBANCE = (1.0, 0.0, 0.01)   # Small tap on pendulum
 EVAL_A2_DISTURBANCE = (1.0, 0.0, 0.05)    # Large tap on pendulum  
-EVAL_A3_DISTURBANCE = (1.0, 1.0, 0.0)    # Shove to cart
+EVAL_A3_DISTURBANCE = (1.0, 2.0, 0.0)    # Shove to cart
 
-EVAL_A_DURATION = 10.0  # [s] - longer to see settling
+EVAL_A_DURATION = 7.0  # [s] - longer to see settling
 
 
 def create_controller(controller_type, poles=None):
