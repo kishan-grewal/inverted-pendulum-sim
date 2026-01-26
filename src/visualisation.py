@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from matplotlib.patches import Circle, FancyBboxPatch
+from matplotlib.patches import Rectangle, Circle, FancyBboxPatch
 from matplotlib.widgets import TextBox
 from pathlib import Path
 
@@ -16,33 +16,16 @@ TEXTBOX_WIDTH = 0.15
 TEXTBOX_X_POS = 0.10
 
 
-def load_results(filepath):
-    filepath = Path(filepath)
-    
-    t_list = []
-    states_list = []
-    metadata = {'parameters': {}}
-    
-    with open(filepath, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith('# Initial angle:'):
-                parts = line.split(':')[1].strip().split()
-                metadata['initial_angle_deg'] = float(parts[0])
-            elif line.startswith('#   '):
-                param_part = line[4:]
-                if ':' in param_part:
-                    key, value = param_part.split(':')
-                    metadata['parameters'][key.strip()] = float(value.strip())
-            elif line and not line.startswith('#'):
-                values = [float(v) for v in line.split()]
-                t_list.append(values[0])
-                states_list.append(values[1:])
-    
-    return np.array(t_list), np.array(states_list), metadata
-
-
 def plot_time_series(t, states, control=None, title_suffix=""):
+    """
+    Plot time series of all states and optionally control force.
+    
+    Args:
+        t: time array [s]
+        states: state array (N, 4) - [x, x_dot, theta, theta_dot]
+        control: optional control force array (N,) [N]
+        title_suffix: suffix to add to plot title
+    """
     if control is not None:
         fig, axes = plt.subplots(3, 2, figsize=(14, 10))
     else:
@@ -52,18 +35,21 @@ def plot_time_series(t, states, control=None, title_suffix=""):
     
     axes_flat = axes.flatten()
     
+    # Cart position
     axes_flat[0].plot(t, states[:, 0], 'b-', linewidth=1)
     axes_flat[0].set_xlabel('Time [s]')
     axes_flat[0].set_ylabel('Cart position x [m]')
     axes_flat[0].set_title('Cart Position')
     axes_flat[0].grid(True, alpha=0.3)
     
+    # Cart velocity
     axes_flat[1].plot(t, states[:, 1], 'b-', linewidth=1)
     axes_flat[1].set_xlabel('Time [s]')
     axes_flat[1].set_ylabel('Cart velocity ẋ [m/s]')
     axes_flat[1].set_title('Cart Velocity')
     axes_flat[1].grid(True, alpha=0.3)
     
+    # Pendulum angle
     theta_deg = np.degrees(states[:, 2])
     axes_flat[2].plot(t, theta_deg, 'r-', linewidth=1)
     axes_flat[2].set_xlabel('Time [s]')
@@ -73,6 +59,7 @@ def plot_time_series(t, states, control=None, title_suffix=""):
     axes_flat[2].grid(True, alpha=0.3)
     axes_flat[2].legend()
     
+    # Pendulum angular velocity
     theta_dot_deg = np.degrees(states[:, 3])
     axes_flat[3].plot(t, theta_dot_deg, 'r-', linewidth=1)
     axes_flat[3].set_xlabel('Time [s]')
@@ -80,6 +67,7 @@ def plot_time_series(t, states, control=None, title_suffix=""):
     axes_flat[3].set_title('Pendulum Angular Velocity')
     axes_flat[3].grid(True, alpha=0.3)
     
+    # Control force (if provided)
     if control is not None:
         axes_flat[4].plot(t, control, 'g-', linewidth=1)
         axes_flat[4].set_xlabel('Time [s]')
@@ -88,6 +76,7 @@ def plot_time_series(t, states, control=None, title_suffix=""):
         axes_flat[4].axhline(y=0, color='gray', linestyle='--', alpha=0.5)
         axes_flat[4].grid(True, alpha=0.3)
         
+        # Control force derivative (rate of change)
         dt = np.diff(t)
         dt = np.where(dt == 0, 1e-6, dt)
         dforce = np.diff(control) / dt
@@ -105,9 +94,11 @@ def plot_time_series(t, states, control=None, title_suffix=""):
 
 
 def plot_phase_portrait(states, title_suffix=""):
+    """Plot phase portraits for cart and pendulum."""
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     fig.suptitle(f"Phase Portraits{title_suffix}")
     
+    # Cart phase portrait
     axes[0].plot(states[:, 0], states[:, 1], 'b-', linewidth=0.5, alpha=0.7)
     axes[0].plot(states[0, 0], states[0, 1], 'go', markersize=10, label='Start')
     axes[0].plot(states[-1, 0], states[-1, 1], 'ro', markersize=10, label='End')
@@ -118,6 +109,7 @@ def plot_phase_portrait(states, title_suffix=""):
     axes[0].legend()
     axes[0].set_aspect('auto')
     
+    # Pendulum phase portrait (wrapped to [-pi, pi])
     theta_wrapped = np.arctan2(np.sin(states[:, 2]), np.cos(states[:, 2]))
     theta_dot = states[:, 3]
     
@@ -135,35 +127,14 @@ def plot_phase_portrait(states, title_suffix=""):
     return fig
 
 
-def plot_from_file(filepath, show=True, save=False):
-    t, states, metadata = load_results(filepath)
-    
-    angle = metadata.get('initial_angle_deg', '?')
-    title_suffix = f" (θ₀ = {angle}°)"
-    
-    fig1 = plot_time_series(t, states, title_suffix=title_suffix)
-    fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
-    
-    if save:
-        plots_dir = Path(filepath).parent.parent / "plots"
-        plots_dir.mkdir(parents=True, exist_ok=True)
-        stem = Path(filepath).stem
-        fig1.savefig(plots_dir / f"{stem}_time_series.png", dpi=150)
-        fig2.savefig(plots_dir / f"{stem}_phase_portrait.png", dpi=150)
-        print(f"Saved plots to {plots_dir}")
-    
-    if show:
-        plt.show()
-    
-    return fig1, fig2
-
-
 class CartPendulumAnimator:
+    """Animator for cart-pendulum system with optional controller and noise sliders."""
+
     def __init__(self, t, states, cart_width=0.3, cart_height=0.15,
                  pendulum_length=None, title="Cart-Pendulum Animation",
                  controller=None, observer=None, show_sliders=False,
                  initial_state=None, t_span=None, enable_air_drag=True,
-                 control=None, noise_std_x=0.002, noise_std_theta=0.29):
+                 control=None, noise_std_x=0.002, noise_std_theta=0.005):
         self.t = t
         self.states = states
         self.control = control if control is not None else np.zeros(len(t))
@@ -175,12 +146,14 @@ class CartPendulumAnimator:
         self.observer = observer
         self.show_sliders = show_sliders and (controller is not None or observer is not None)
 
+        # Store simulation parameters for re-running
         self.initial_state = initial_state
         self.t_span = t_span
         self.enable_air_drag = enable_air_drag
         self.noise_std_x = noise_std_x
         self.noise_std_theta = noise_std_theta
 
+        # Determine controller type
         self.controller_type = None
         if controller is not None:
             info = controller.get_info()
@@ -191,6 +164,7 @@ class CartPendulumAnimator:
             elif 'PolePlacement' in info['type'] or 'Pole' in info['type']:
                 self.controller_type = 'pole'
 
+        # Current frame index
         self.current_frame = 0
         self.skip_frames = 1
 
@@ -202,9 +176,11 @@ class CartPendulumAnimator:
         self.ax_dforce = None
         self.anim = None
 
+        # Textbox references
         self.textboxes = {}
     
     def _compute_axis_limits(self):
+        """Compute axis limits from current data."""
         x_min = np.min(self.states[:, 0]) - self.cart_width - self.pendulum_length
         x_max = np.max(self.states[:, 0]) + self.cart_width + self.pendulum_length
         y_min = -self.pendulum_length - self.cart_height
@@ -216,6 +192,7 @@ class CartPendulumAnimator:
         self.ylim = (y_min - y_padding, y_max + y_padding)
     
     def _setup_figure(self):
+        """Create figure with animation and plots."""
         self._compute_axis_limits()
 
         if self.show_sliders:
@@ -224,16 +201,22 @@ class CartPendulumAnimator:
             self.fig = plt.figure(figsize=(16, 9))
         self.fig.suptitle(self.title)
 
+        # Adjust layout for sliders if needed
         if self.show_sliders:
+            # Main animation axes
             self.ax_anim = self.fig.add_axes([0.03, 0.30, 0.38, 0.60])
+
+            # Right side: 2x2 grid of plots
             self.ax_theta = self.fig.add_axes([0.46, 0.55, 0.24, 0.35])
             self.ax_force = self.fig.add_axes([0.74, 0.55, 0.24, 0.35])
             self.ax_x = self.fig.add_axes([0.46, 0.10, 0.24, 0.35])
             self.ax_dforce = self.fig.add_axes([0.74, 0.10, 0.24, 0.35])
 
+            # Create textboxes based on controller type
             self._setup_textboxes()
 
         else:
+            # Standard layout without sliders
             self.ax_anim = self.fig.add_axes([0.03, 0.10, 0.40, 0.80])
             self.ax_theta = self.fig.add_axes([0.50, 0.55, 0.22, 0.35])
             self.ax_force = self.fig.add_axes([0.76, 0.55, 0.22, 0.35])
@@ -244,6 +227,8 @@ class CartPendulumAnimator:
         self._setup_artists()
     
     def _setup_textboxes(self):
+        """Create textboxes based on controller type and observer."""
+        # TEXTBOX LAYOUT CONSTANTS are at top of file
         current_y = TEXTBOX_Y_START
         
         if self.controller_type == 'pid':
@@ -339,12 +324,16 @@ class CartPendulumAnimator:
                      fontsize=9, style='italic', alpha=0.7)
     
     def _compute_dforce(self):
+        """Compute derivative of force (dF/dt)."""
         dt = np.diff(self.t)
         dt = np.where(dt == 0, 1e-6, dt)
         dforce = np.diff(self.control[:len(self.t)]) / dt
+        # Pad to match length of t
         return np.concatenate([[0], dforce])
 
     def _setup_axes(self):
+        """Configure all axes."""
+        # Configure animation axes
         self.ax_anim.set_xlim(self.xlim)
         self.ax_anim.set_ylim(self.ylim)
         self.ax_anim.set_aspect('equal')
@@ -353,6 +342,7 @@ class CartPendulumAnimator:
         self.ax_anim.grid(True, alpha=0.3)
         self.ax_anim.axhline(y=-self.cart_height / 2, color='brown', linewidth=2)
 
+        # Configure theta plot
         self.ax_theta.set_xlim(0, self.t[-1])
         theta_deg = np.degrees(self.states[:, 2])
         self.ax_theta.set_ylim(min(theta_deg.min(), -10) - 5, max(theta_deg.max(), 10) + 5)
@@ -362,6 +352,7 @@ class CartPendulumAnimator:
         self.ax_theta.grid(True, alpha=0.3)
         self.ax_theta.axhline(y=0, color='g', linestyle='--', alpha=0.5)
 
+        # Configure x position plot
         self.ax_x.set_xlim(0, self.t[-1])
         self.ax_x.set_ylim(self.states[:, 0].min() - 0.1, self.states[:, 0].max() + 0.1)
         self.ax_x.set_xlabel('Time [s]')
@@ -369,6 +360,7 @@ class CartPendulumAnimator:
         self.ax_x.set_title('Cart Position')
         self.ax_x.grid(True, alpha=0.3)
 
+        # Configure force plot
         force_data = self.control[:len(self.t)]
         self.ax_force.set_xlim(0, self.t[-1])
         force_margin = max(abs(force_data.min()), abs(force_data.max()), 1) * 0.1
@@ -379,6 +371,7 @@ class CartPendulumAnimator:
         self.ax_force.grid(True, alpha=0.3)
         self.ax_force.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
 
+        # Configure dF/dt plot
         self.dforce = self._compute_dforce()
         self.ax_dforce.set_xlim(0, self.t[-1])
         dforce_margin = max(abs(self.dforce.min()), abs(self.dforce.max()), 1) * 0.1
@@ -390,6 +383,8 @@ class CartPendulumAnimator:
         self.ax_dforce.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
     
     def _setup_artists(self):
+        """Create all plot artists."""
+        # Cart
         self.cart_patch = FancyBboxPatch(
             (0, 0), self.cart_width, self.cart_height,
             boxstyle="round,pad=0.01",
@@ -399,28 +394,34 @@ class CartPendulumAnimator:
         )
         self.ax_anim.add_patch(self.cart_patch)
 
+        # Wheels
         wheel_radius = self.cart_height * 0.25
         self.wheel_left = Circle((0, 0), wheel_radius, facecolor='black')
         self.wheel_right = Circle((0, 0), wheel_radius, facecolor='black')
         self.ax_anim.add_patch(self.wheel_left)
         self.ax_anim.add_patch(self.wheel_right)
 
+        # Pendulum rod
         self.pendulum_line, = self.ax_anim.plot([], [], 'o-', color='firebrick',
                                                   linewidth=4, markersize=12,
                                                   markerfacecolor='darkred')
 
+        # Pivot point
         self.pivot_point = Circle((0, 0), 0.02, facecolor='black', zorder=5)
         self.ax_anim.add_patch(self.pivot_point)
 
+        # Time text
         self.time_text = self.ax_anim.text(0.02, 0.98, '', transform=self.ax_anim.transAxes,
                                             fontsize=12, verticalalignment='top',
                                             fontfamily='monospace')
 
+        # Live plot lines
         self.theta_line, = self.ax_theta.plot([], [], 'r-', linewidth=1.5)
         self.x_line, = self.ax_x.plot([], [], 'b-', linewidth=1.5)
         self.force_line, = self.ax_force.plot([], [], 'g-', linewidth=1.5)
         self.dforce_line, = self.ax_dforce.plot([], [], 'm-', linewidth=1.5)
 
+        # Current position markers
         self.theta_marker, = self.ax_theta.plot([], [], 'ro', markersize=8)
         self.x_marker, = self.ax_x.plot([], [], 'bo', markersize=8)
         self.force_marker, = self.ax_force.plot([], [], 'go', markersize=8)
@@ -433,7 +434,7 @@ class CartPendulumAnimator:
             print(f"Invalid input for {param_name}: '{text}' (must be a number)")
             return
 
-        # Handle noise parameters FIRST (before controller/observer checks)
+        # Handle noise parameters FIRST (before controller checks)
         if param_name == 'noise_x':
             self.noise_std_x = value
         elif param_name == 'noise_theta':
@@ -552,6 +553,7 @@ class CartPendulumAnimator:
         self.fig.canvas.flush_events()
     
     def _init_animation(self):
+        """Initialize animation elements."""
         self.cart_patch.set_x(0)
         self.cart_patch.set_y(0)
         self.wheel_left.center = (0, 0)
@@ -574,6 +576,8 @@ class CartPendulumAnimator:
                 self.theta_marker, self.x_marker, self.force_marker, self.dforce_marker)
     
     def _update_animation(self, frame_idx):
+        """Update animation for given frame."""
+        # Use internal frame counter that resets on slider change
         frame = (self.current_frame * self.skip_frames) % len(self.t)
         self.current_frame += 1
 
@@ -583,27 +587,33 @@ class CartPendulumAnimator:
         force_current = self.control[frame] if frame < len(self.control) else 0
         dforce_current = self.dforce[frame] if frame < len(self.dforce) else 0
 
+        # Cart position
         cart_x = x - self.cart_width / 2
         cart_y = -self.cart_height / 2
         self.cart_patch.set_x(cart_x)
         self.cart_patch.set_y(cart_y)
 
+        # Wheels
         wheel_radius = self.cart_height * 0.25
         wheel_y = -self.cart_height / 2
         self.wheel_left.center = (x - self.cart_width / 3, wheel_y)
         self.wheel_right.center = (x + self.cart_width / 3, wheel_y)
 
+        # Pivot point
         pivot_x = x
         pivot_y = self.cart_height / 2
         self.pivot_point.center = (pivot_x, pivot_y)
 
+        # Pendulum endpoint (theta=0 is upright, positive tilts right)
         pend_x = pivot_x + self.pendulum_length * np.sin(theta)
         pend_y = pivot_y + self.pendulum_length * np.cos(theta)
         self.pendulum_line.set_data([pivot_x, pend_x], [pivot_y, pend_y])
 
+        # Time text
         theta_deg = np.degrees(theta)
         self.time_text.set_text(f't = {t_current:.2f} s\nx = {x:.3f} m\nθ = {theta_deg:.1f}°\nF = {force_current:.2f} N')
 
+        # Update live plots
         t_data = self.t[:frame + 1]
         theta_data = np.degrees(self.states[:frame + 1, 2])
         x_data = self.states[:frame + 1, 0]
@@ -626,9 +636,11 @@ class CartPendulumAnimator:
                 self.theta_marker, self.x_marker, self.force_marker, self.dforce_marker)
     
     def animate(self, interval=20, skip_frames=1, save_path=None):
+        """Run the animation."""
         self._setup_figure()
         self.skip_frames = skip_frames
         
+        # Use a generator that runs indefinitely
         def frame_generator():
             i = 0
             while True:
@@ -653,20 +665,11 @@ class CartPendulumAnimator:
         plt.show()
 
 
-def animate_from_file(filepath, **kwargs):
-    t, states, metadata = load_results(filepath)
-    
-    angle = metadata.get('initial_angle_deg', '?')
-    title = f"Cart-Pendulum Animation (θ₀ = {angle}°)"
-    
-    animator = CartPendulumAnimator(t, states, title=title)
-    animator.animate(**kwargs)
-
-
 def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
                         observer=None, show_sliders=False, initial_state=None,
                         t_span=None, enable_air_drag=True, control=None,
-                        noise_std_x=0.002, noise_std_theta=0.29, **kwargs):
+                        noise_std_x=0.002, noise_std_theta=0.005, **kwargs):
+    """Animate from arrays with optional controller/observer for sliders."""
     animator = CartPendulumAnimator(
         t, states, title=title,
         controller=controller,
