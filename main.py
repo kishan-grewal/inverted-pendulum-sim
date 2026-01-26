@@ -7,7 +7,8 @@ from src.dynamics import get_parameters
 from src.controllers import LQRController, PIDController, PolePlacementController
 from src.observers import LuenbergerObserver, DEFAULT_OBSERVER_POLES
 from src.simulation import simulate, DEFAULT_NOISE_STD_X, DEFAULT_NOISE_STD_THETA
-from src.visualisation import animate_from_arrays, plot_time_series, plot_phase_portrait
+from src.visualisation import animate_from_arrays
+from src.plots import plot_time_series, plot_phase_portrait
 
 
 # ===== SYSTEM CONSTRAINTS =====

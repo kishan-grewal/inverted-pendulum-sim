@@ -253,7 +253,7 @@ class CartPendulumAnimator:
                 # Pendulum disturbance
                 self.ax_disturbance.set_ylabel('Angular [N·s·m]')
                 self.ax_disturbance.set_title('Pendulum Disturbance')
-                self.ax_disturbance.set_ylim(-0.1, 0.3)
+                self.ax_disturbance.set_ylim(-0.05, 0.10)
             else:
                 # Cart disturbance
                 self.ax_disturbance.set_ylabel('Cart [N·s]')
