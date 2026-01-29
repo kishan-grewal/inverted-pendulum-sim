@@ -1,9 +1,9 @@
-# inverted-cart-pendulum
+# inverted-pendulum-sim
 
 ## Checkout current branch
 ```bash
 git fetch origin
-git checkout main
+git checkout add-evalC
 ```
 
 ## Setup:
