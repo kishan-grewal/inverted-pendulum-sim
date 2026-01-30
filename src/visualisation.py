@@ -23,10 +23,11 @@ class CartPendulumAnimator:
                  controller=None, observer=None, show_textboxes=False,
                  initial_state=None, t_span=None, enable_air_drag=True,
                  control=None, noise_std_x=0.002, noise_std_theta=0.005,
-                 disturbances=None):
+                 disturbances=None, xlim=None):
         self.t = t
         self.states = states
         self.control = control if control is not None else np.zeros(len(t))
+        self.custom_xlim = xlim  # Optional custom x-axis limits
         self.cart_width = cart_width
         self.cart_height = cart_height
         self.pendulum_length = pendulum_length if pendulum_length else L_rod
@@ -70,15 +71,19 @@ class CartPendulumAnimator:
         self.textboxes = {}
     
     def _compute_axis_limits(self):
-        """Compute axis limits from current data."""
-        x_min = np.min(self.states[:, 0]) - self.cart_width - self.pendulum_length
-        x_max = np.max(self.states[:, 0]) + self.cart_width + self.pendulum_length
+        """Compute axis limits - fixed x range for consistent visuals."""
+        # Use custom xlim if provided, otherwise default
+        if self.custom_xlim is not None:
+            x_min, x_max = self.custom_xlim
+        else:
+            x_min = -1.5
+            x_max = 1.5
+
         y_min = -self.pendulum_length - self.cart_height
         y_max = self.pendulum_length + self.cart_height
-        
-        x_padding = (x_max - x_min) * 0.1
+
         y_padding = (y_max - y_min) * 0.1
-        self.xlim = (x_min - x_padding, x_max + x_padding)
+        self.xlim = (x_min, x_max)
         self.ylim = (y_min - y_padding, y_max + y_padding)
     
     def _setup_figure(self):
@@ -557,8 +562,8 @@ class CartPendulumAnimator:
 def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
                         observer=None, show_textboxes=False, initial_state=None,
                         t_span=None, enable_air_drag=True, control=None,
-                        noise_std_x=0.002, noise_std_theta=0.005, 
-                        disturbances=None, **kwargs):
+                        noise_std_x=0.002, noise_std_theta=0.005,
+                        disturbances=None, xlim=None, **kwargs):
     """Animate from arrays with optional controller/observer for textboxes."""
     animator = CartPendulumAnimator(
         t, states, title=title,
@@ -571,6 +576,7 @@ def animate_from_arrays(t, states, title="Cart-Pendulum", controller=None,
         control=control,
         noise_std_x=noise_std_x,
         noise_std_theta=noise_std_theta,
-        disturbances=disturbances
+        disturbances=disturbances,
+        xlim=xlim
     )
     animator.animate(**kwargs)

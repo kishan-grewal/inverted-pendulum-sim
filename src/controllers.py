@@ -103,12 +103,15 @@ class LQRController:
     def reset(self):
         pass
     
-    def compute(self, state, dt):
-        F = -self.K @ state
-        
+    def compute(self, state, dt, target_state=None):
+        if target_state is None:
+            target_state = np.zeros(4)
+
+        F = -self.K @ (state - target_state)
+
         if self.output_limits is not None:
             F = np.clip(F, self.output_limits[0], self.output_limits[1])
-        
+
         return F
     
     def get_info(self):
@@ -124,13 +127,14 @@ class LQRController:
 
 
 class PIDController:
-    def __init__(self, Kp=None, Ki=None, Kd=None, output_limits=None):
+    def __init__(self, Kp=None, Ki=None, Kd=None, output_limits=None, target_angle=0.0):
         self.Kp = Kp if Kp is not None else DEFAULT_PID_KP
         self.Ki = Ki if Ki is not None else DEFAULT_PID_KI
         self.Kd = Kd if Kd is not None else DEFAULT_PID_KD
-        
+
         self.output_limits = output_limits
-        
+        self.target_angle = target_angle  # [rad]
+
         self.integral = 0.0
         self.integral_limit = DEFAULT_PID_INTEGRAL_LIMIT
     
@@ -145,25 +149,25 @@ class PIDController:
         if Kd is not None:
             self.Kd = Kd
     
-    def compute(self, state, dt):
+    def compute(self, state, dt, target_state=None):
         theta = state[2]
         theta_dot = state[3]
-        
-        error = theta
-        
+
+        error = theta - self.target_angle
+
         P = self.Kp * error
-        
+
         self.integral += error * dt
         self.integral = np.clip(self.integral, -self.integral_limit, self.integral_limit)
         I = self.Ki * self.integral
-        
+
         D = self.Kd * theta_dot
-        
+
         F = P + I + D
-        
+
         if self.output_limits is not None:
             F = np.clip(F, self.output_limits[0], self.output_limits[1])
-        
+
         return F
     
     def get_info(self):
@@ -216,8 +220,11 @@ class PolePlacementController:
     def reset(self):
         pass
 
-    def compute(self, state, dt):
-        F = -self.K @ state
+    def compute(self, state, dt, target_state=None):
+        if target_state is None:
+            target_state = np.zeros(4)
+
+        F = -self.K @ (state - target_state)
 
         if self.output_limits is not None:
             F = np.clip(F, self.output_limits[0], self.output_limits[1])

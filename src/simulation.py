@@ -24,8 +24,9 @@ def add_sensor_noise(true_state, noise_std_x=DEFAULT_NOISE_STD_X,
 
 
 def simulate(initial_state, t_span, dt=DEFAULT_DT, controller=None, enable_air_drag=True,
-             observer=None, noise_std_x=DEFAULT_NOISE_STD_X, 
-             noise_std_theta=DEFAULT_NOISE_STD_THETA, disturbances=None):
+             observer=None, noise_std_x=DEFAULT_NOISE_STD_X,
+             noise_std_theta=DEFAULT_NOISE_STD_THETA, disturbances=None, target_state=None,
+             on_step=None):
     """
     Simulate the cart-pendulum system.
     
@@ -91,10 +92,14 @@ def simulate(initial_state, t_span, dt=DEFAULT_DT, controller=None, enable_air_d
             controller_state = observer.update(y_measured, current_control[0], dt_step)
             estimate_history.append(controller_state.copy())
         
+        # Optional callback to modify controller state (e.g., PID target angle)
+        if on_step is not None:
+            on_step(controller, state, t_curr)
+
         if controller is None:
             F = 0.0
         else:
-            F = controller.compute(controller_state, dt_step)
+            F = controller.compute(controller_state, dt_step, target_state=target_state)
         
         current_control[0] = F
         control_history.append(F)

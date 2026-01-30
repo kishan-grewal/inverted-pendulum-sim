@@ -17,6 +17,11 @@ FORCE_LIMITS = (-15.0, 15.0)  # [N]
 # ===== SIMULATION DURATIONS =====
 A_DURATION = 7.0  # [s] - longer to see settling after disturbance
 B_DURATION = 5.0  # [s]
+SPRINT_DURATION = 10.0  # [s]
+
+# ===== SPRINT PARAMETERS =====
+SPRINT_TARGET = 2.0  # [m] - target position for sprint
+SPRINT_POSITION_TOLERANCE = 0.05  # [m] - within 5cm counts as "reached"
 
 # ===== EVALUATION A DISTURBANCE =====
 # Format: (time [s], cart_impulse [N·s], angular_impulse [N·s·m])
@@ -223,6 +228,156 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
     return results
 
 
+def run_sprint(controller_type, enable_air_drag=True, show_textboxes=False,
+               poles=None, use_observer=True):
+    """
+    Run sprint evaluation: stabilise pendulum and reach 2m target.
+    """
+    target_state = np.array([SPRINT_TARGET, 0.0, 0.0, 0.0])
+    initial_state = np.array([0.0, 0.0, 0.0, 0.0])
+    t_span = (0.0, SPRINT_DURATION)
+
+    print(f"Sprint Challenge")
+    print(f"Controller: {controller_type.upper()}")
+    print(f"Target: {SPRINT_TARGET}m")
+
+    controller = create_controller(controller_type, poles=poles)
+    observer = None
+    if use_observer:
+        observer = LuenbergerObserver(observer_poles=DEFAULT_OBSERVER_POLES)
+
+    # PID sprint: lean forward (2°) until 1.8m, then straighten up
+    on_step = None
+    if controller_type == 'pid':
+        # More oscillatory gains for sprint (higher Kp, lower Kd)
+        controller.set_gains(Kp=150.0, Ki=0.0, Kd=10.0)
+
+        PID_LEAN_ANGLE = np.radians(1.0)   # lean forward
+        PID_BRAKE_ANGLE = np.radians(-11.0)  # lean backward to brake
+
+        def pid_sprint_callback(ctrl, state, t):
+
+            flag1 = False
+            flag2 = False
+            x = state[0]
+
+            if x < 1.7 and flag1==False:
+                ctrl.target_angle = PID_LEAN_ANGLE
+                flag1=True
+            elif x < 2.0 and flag2==False:
+                ctrl.target_angle = PID_BRAKE_ANGLE
+                flag2=True
+            else:
+                ctrl.target_angle = 0.0
+
+        on_step = pid_sprint_callback
+        print(f"PID gains: Kp={controller.Kp}, Ki={controller.Ki}, Kd={controller.Kd}")
+
+    results = simulate(
+        initial_state, t_span,
+        controller=controller,
+        enable_air_drag=enable_air_drag,
+        observer=observer,
+        noise_std_x=DEFAULT_NOISE_STD_X,
+        noise_std_theta=DEFAULT_NOISE_STD_THETA,
+        target_state=target_state,
+        on_step=on_step
+    )
+
+    t = results['t']
+    states = results['states']
+    control = results['control']
+
+    if len(control) < len(states):
+        control = np.concatenate([[0.0], control])
+
+    # Calculate sprint metrics
+    positions = states[:, 0]
+    theta_deg = np.abs(np.degrees(states[:, 2]))
+
+    # Time to reach target (within tolerance)
+    reached_idx = np.where(np.abs(positions - SPRINT_TARGET) < SPRINT_POSITION_TOLERANCE)[0]
+    time_to_target = t[reached_idx[0]] if len(reached_idx) > 0 else None
+
+    # Final position error
+    final_position = positions[-1]
+    final_error = abs(final_position - SPRINT_TARGET)
+
+    # Max angle deviation
+    max_angle = theta_deg.max()
+
+    # Did it fall?
+    fell = max_angle > 90.0
+
+    # Final velocity (should be near zero if stopped)
+    final_velocity = abs(states[-1, 1])
+
+    # Max control force used
+    max_force = np.max(np.abs(control))
+
+    # Print results
+    print(f"\nResults:")
+    if fell:
+        print(f"  Status: FAILED - Pendulum fell over")
+    else:
+        if time_to_target:
+            print(f"  Time to reach {SPRINT_TARGET}m: {time_to_target:.2f}s")
+        else:
+            print(f"  Time to reach {SPRINT_TARGET}m: Did not reach target")
+        print(f"  Final position: {final_position:.3f}m (error: {final_error:.3f}m)")
+        print(f"  Final velocity: {final_velocity:.3f}m/s")
+        print(f"  Max angle deviation: {max_angle:.2f}°")
+        print(f"  Max control force: {max_force:.2f}N")
+        if final_error < SPRINT_POSITION_TOLERANCE and final_velocity < 0.1:
+            print(f"  Status: SUCCESS")
+        else:
+            print(f"  Status: PARTIAL - reached but not settled")
+
+    # Save results
+    data_dir = Path(__file__).parent / "data"
+    drag_str = "drag" if enable_air_drag else "nodrag"
+    obs_str = "obs" if use_observer else "perfect"
+    filename = f"sprint_{controller_type}_{drag_str}_{obs_str}.csv"
+    save_results(data_dir / filename, t, states, control)
+
+    # Generate plots
+    plots_dir = Path(__file__).parent / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    title_suffix = f" - Sprint ({controller_type.upper()})"
+    fig1 = plot_time_series(t, states, control=control, title_suffix=title_suffix)
+    fig1.savefig(plots_dir / filename.replace('.csv', '_timeseries.png'), dpi=150, bbox_inches='tight')
+
+    fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
+    fig2.savefig(plots_dir / filename.replace('.csv', '_phase.png'), dpi=150, bbox_inches='tight')
+
+    plt.close('all')
+
+    # Show animation
+    title = f"Sprint: {controller_type.upper()} to {SPRINT_TARGET}m"
+    if not enable_air_drag:
+        title += " (no drag)"
+    if use_observer:
+        title += " (with observer)"
+
+    animate_from_arrays(
+        t, states, title=title,
+        controller=controller if show_textboxes else None,
+        observer=observer if show_textboxes else None,
+        show_textboxes=show_textboxes,
+        initial_state=initial_state,
+        t_span=t_span,
+        enable_air_drag=enable_air_drag,
+        control=control,
+        noise_std_x=DEFAULT_NOISE_STD_X,
+        noise_std_theta=DEFAULT_NOISE_STD_THETA,
+        xlim=(-1, 3),  # Sprint window: -1m to 3m
+        interval=20, skip_frames=2
+    )
+
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Cart-Pendulum Control Evaluation',
@@ -233,6 +388,7 @@ def main():
     eval_group = parser.add_mutually_exclusive_group(required=True)
     eval_group.add_argument('-A', action='store_true', help='Eval A: Disturbance rejection')
     eval_group.add_argument('-B', type=float, metavar='ANGLE', help='Eval B: Recovery from angle [deg]')
+    eval_group.add_argument('--sprint', action='store_true', help='Sprint: Reach 2m target while balancing')
     
     # Controller selection
     parser.add_argument('--controller', type=str, required=True, choices=['lqr', 'pid', 'pole'],
@@ -255,24 +411,32 @@ def main():
     if args.poles is not None:
         poles = [complex(p.strip()) for p in args.poles.split(',')]
     
-    # Determine evaluation type
-    if args.A:
-        eval_type = 'A'
-        test_id = None
+    # Determine evaluation type and run
+    if args.sprint:
+        run_sprint(
+            controller_type=args.controller,
+            enable_air_drag=not args.no_drag,
+            show_textboxes=not args.no_textboxes,
+            poles=poles,
+            use_observer=not args.no_observer
+        )
     else:
-        eval_type = 'B'
-        test_id = args.B
+        if args.A:
+            eval_type = 'A'
+            test_id = None
+        else:
+            eval_type = 'B'
+            test_id = args.B
 
-    # Run evaluation
-    run_evaluation(
-        eval_type=eval_type,
-        test_id=test_id,
-        controller_type=args.controller,
-        enable_air_drag=not args.no_drag,
-        show_textboxes=not args.no_textboxes,
-        poles=poles,
-        use_observer=not args.no_observer
-    )
+        run_evaluation(
+            eval_type=eval_type,
+            test_id=test_id,
+            controller_type=args.controller,
+            enable_air_drag=not args.no_drag,
+            show_textboxes=not args.no_textboxes,
+            poles=poles,
+            use_observer=not args.no_observer
+        )
 
 
 if __name__ == "__main__":
