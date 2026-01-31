@@ -17,11 +17,11 @@ FORCE_LIMITS = (-15.0, 15.0)  # [N]
 # ===== SIMULATION DURATIONS =====
 A_DURATION = 7.0  # [s] - longer to see settling after disturbance
 B_DURATION = 5.0  # [s]
-SPRINT_DURATION = 10.0  # [s]
+C_DURATION = 10.0  # [s] - sprint duration
 
-# ===== SPRINT PARAMETERS =====
-SPRINT_TARGET = 2.0  # [m] - target position for sprint
-SPRINT_POSITION_TOLERANCE = 0.05  # [m] - within 5cm counts as "reached"
+# ===== EVAL C PARAMETERS =====
+C_TARGET = 2.0  # [m] - target position for eval C
+C_POSITION_TOLERANCE = 0.05  # [m] - within 5cm counts as "reached"
 
 # ===== EVALUATION A DISTURBANCE =====
 # Format: (time [s], cart_impulse [N·s], angular_impulse [N·s·m])
@@ -55,11 +55,11 @@ def save_results(filepath, t, states, control):
 def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
                    show_textboxes=False, poles=None, use_observer=True):
     """
-    Run evaluation A or B.
+    Run evaluation A, B, or C.
     
     Args:
-        eval_type: 'A' or 'B'
-        test_id: For A: unused, For B: angle in degrees
+        eval_type: 'A', 'B', or 'C'
+        test_id: For A: unused, For B: angle in degrees, For C: unused
         controller_type: 'lqr', 'pid', or 'pole'
         enable_air_drag: whether to include air drag
         show_textboxes: whether to show interactive textboxes
@@ -75,21 +75,61 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
         disturbances = [disturbance]
         duration = A_DURATION
         eval_label = "A"
+        target_state = None
+        on_step = None
+        xlim = None
         
-    else:  # eval_type == 'B'
+    elif eval_type == 'B':
         theta_0 = np.radians(test_id)
         initial_state = np.array([0.0, 0.0, theta_0, 0.0])
         disturbances = None
         disturbance = None
         duration = B_DURATION
         eval_label = f"B ({test_id}°)"
+        target_state = None
+        on_step = None
+        xlim = None
+    
+    elif eval_type == 'C':
+        initial_state = np.array([0.0, 0.0, 0.0, 0.0])
+        target_state = np.array([C_TARGET, 0.0, 0.0, 0.0])
+        disturbances = None
+        disturbance = None
+        duration = C_DURATION
+        eval_label = "C (Sprint)"
+        xlim = (-1, 3)  # Wider view for sprint
+        
+        # Setup controller first (needed for PID callback)
+        controller = create_controller(controller_type, poles=poles)
+        
+        # PID special handling for sprint
+        on_step = None
+        if controller_type == 'pid':
+            # More oscillatory gains for sprint (higher Kp, lower Kd)
+            controller.set_gains(Kp=150.0, Ki=0.0, Kd=10.0)
+            
+            PID_LEAN_ANGLE = np.radians(1.0)   # lean forward
+            PID_BRAKE_ANGLE = np.radians(-11.0)  # lean backward to brake
+            
+            def pid_sprint_callback(ctrl, state, t):
+                x = state[0]
+                
+                if x < 1.7:
+                    ctrl.target_angle = PID_LEAN_ANGLE
+                elif x < 2.0:
+                    ctrl.target_angle = PID_BRAKE_ANGLE
+                else:
+                    ctrl.target_angle = 0.0
+            
+            on_step = pid_sprint_callback
     
     print(f"Evaluation {eval_label}")
     print(f"Controller: {controller_type.upper()}")
     
-    # Setup controller and observer
+    # Setup controller and observer (if not already created for PID sprint)
     t_span = (0.0, duration)
-    controller = create_controller(controller_type, poles=poles)
+    if eval_type != 'C' or controller_type != 'pid':
+        controller = create_controller(controller_type, poles=poles)
     observer = None
     if use_observer:
         observer = LuenbergerObserver(observer_poles=DEFAULT_OBSERVER_POLES)
@@ -102,7 +142,9 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
         observer=observer,
         noise_std_x=DEFAULT_NOISE_STD_X,
         noise_std_theta=DEFAULT_NOISE_STD_THETA,
-        disturbances=disturbances
+        disturbances=disturbances,
+        target_state=target_state,
+        on_step=on_step
     )
     
     t = results['t']
@@ -129,7 +171,7 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
         settling_time = t[dist_idx + settling_idx] - disturbance_time if settling_idx else None
         fell = np.any(theta_after > 90.0)
         
-    else:  # eval_type == 'B'
+    elif eval_type == 'B':
         max_deviation = np.abs(test_id)
         
         # Check stabilization
@@ -147,13 +189,36 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
         settling_time = t[settling_idx] if settling_idx else None
         fell = False
     
+    elif eval_type == 'C':
+        # Sprint metrics
+        positions = states[:, 0]
+        theta_deg = np.abs(np.degrees(states[:, 2]))
+        
+        # Time to reach target (within tolerance)
+        reached_idx = np.where(np.abs(positions - C_TARGET) < C_POSITION_TOLERANCE)[0]
+        time_to_target = t[reached_idx[0]] if len(reached_idx) > 0 else None
+        
+        # Final position error
+        final_position = positions[-1]
+        final_error = abs(final_position - C_TARGET)
+        
+        # Max angle deviation
+        max_deviation = theta_deg.max()
+        
+        # Did it fall?
+        fell = max_deviation > 90.0
+        
+        # Final velocity (should be near zero if stopped)
+        final_velocity = abs(states[-1, 1])
+    
     max_force = np.max(np.abs(control))
     
     # Print results
     print(f"\nResults:")
-    print(f"  Max angle deviation: {max_deviation:.2f}°")
     
     if eval_type == 'A':
+        print(f"  Max angle deviation: {max_deviation:.2f}°")
+        
         if fell:
             print(f"  Status: FAILED - Pendulum fell over")
         elif settling_time:
@@ -161,12 +226,30 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
             print(f"  Status: SUCCESS")
         else:
             print(f"  Settling time: Did not settle within {duration}s")
-    else:
+    
+    elif eval_type == 'B':
+        print(f"  Max angle deviation: {max_deviation:.2f}°")
         print(f"  Stabilised: {'Yes' if stabilised else 'No'}")
         if settling_time:
             print(f"  Settling time: {settling_time:.2f}s")
         else:
             print(f"  Settling time: Did not settle")
+    
+    elif eval_type == 'C':
+        if fell:
+            print(f"  Status: FAILED - Pendulum fell over")
+        else:
+            if time_to_target:
+                print(f"  Time to reach {C_TARGET}m: {time_to_target:.2f}s")
+            else:
+                print(f"  Time to reach {C_TARGET}m: Did not reach target")
+            print(f"  Final position: {final_position:.3f}m (error: {final_error:.3f}m)")
+            print(f"  Final velocity: {final_velocity:.3f}m/s")
+            print(f"  Max angle deviation: {max_deviation:.2f}°")
+            if final_error < C_POSITION_TOLERANCE and final_velocity < 0.1:
+                print(f"  Status: SUCCESS")
+            else:
+                print(f"  Status: PARTIAL - reached but not settled")
     
     print(f"  Max control force: {max_force:.2f} N\n")
     
@@ -177,8 +260,10 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
     
     if eval_type == 'A':
         filename = f"eval_a_{controller_type}_{drag_str}_{obs_str}.csv"
-    else:
+    elif eval_type == 'B':
         filename = f"eval_b_{controller_type}_{drag_str}_{obs_str}_{abs(test_id)}deg.csv"
+    elif eval_type == 'C':
+        filename = f"eval_c_{controller_type}_{drag_str}_{obs_str}.csv"
     
     save_results(data_dir / filename, t, states, control)
     
@@ -188,10 +273,12 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
     
     if eval_type == 'A':
         title_suffix = f" - Eval A ({controller_type.upper()})"
-    else:
+    elif eval_type == 'B':
         title_suffix = f" - Eval B: {test_id}° ({controller_type.upper()})"
+    elif eval_type == 'C':
+        title_suffix = f" - Eval C: Sprint ({controller_type.upper()})"
     
-    fig1 = plot_time_series(t, states, control=control, disturbance=disturbance, title_suffix=title_suffix)
+    fig1 = plot_time_series(t, states, control=control, disturbance=disturbance if eval_type == 'A' else None, title_suffix=title_suffix)
     fig1.savefig(plots_dir / filename.replace('.csv', '_timeseries.png'), dpi=150, bbox_inches='tight')
     
     fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
@@ -202,8 +289,10 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
     # Show animation
     if eval_type == 'A':
         title = f"Eval A: {controller_type.upper()}"
-    else:
+    elif eval_type == 'B':
         title = f"Eval B: {controller_type.upper()} from {test_id}°"
+    elif eval_type == 'C':
+        title = f"Eval C: {controller_type.upper()} sprint to {C_TARGET}m"
     
     if not enable_air_drag:
         title += " (no drag)"
@@ -222,159 +311,10 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
         noise_std_x=DEFAULT_NOISE_STD_X,
         noise_std_theta=DEFAULT_NOISE_STD_THETA,
         disturbances=disturbances,
+        xlim=xlim,
         interval=20, skip_frames=2
     )
     
-    return results
-
-
-def run_sprint(controller_type, enable_air_drag=True, show_textboxes=False,
-               poles=None, use_observer=True):
-    """
-    Run sprint evaluation: stabilise pendulum and reach 2m target.
-    """
-    target_state = np.array([SPRINT_TARGET, 0.0, 0.0, 0.0])
-    initial_state = np.array([0.0, 0.0, 0.0, 0.0])
-    t_span = (0.0, SPRINT_DURATION)
-
-    print(f"Sprint Challenge")
-    print(f"Controller: {controller_type.upper()}")
-    print(f"Target: {SPRINT_TARGET}m")
-
-    controller = create_controller(controller_type, poles=poles)
-    observer = None
-    if use_observer:
-        observer = LuenbergerObserver(observer_poles=DEFAULT_OBSERVER_POLES)
-
-    # PID sprint: lean forward (2°) until 1.8m, then straighten up
-    on_step = None
-    if controller_type == 'pid':
-        # More oscillatory gains for sprint (higher Kp, lower Kd)
-        controller.set_gains(Kp=150.0, Ki=0.0, Kd=10.0)
-
-        PID_LEAN_ANGLE = np.radians(1.0)   # lean forward
-        PID_BRAKE_ANGLE = np.radians(-11.0)  # lean backward to brake
-
-        def pid_sprint_callback(ctrl, state, t):
-
-            flag1 = False
-            flag2 = False
-            x = state[0]
-
-            if x < 1.7 and flag1==False:
-                ctrl.target_angle = PID_LEAN_ANGLE
-                flag1=True
-            elif x < 2.0 and flag2==False:
-                ctrl.target_angle = PID_BRAKE_ANGLE
-                flag2=True
-            else:
-                ctrl.target_angle = 0.0
-
-        on_step = pid_sprint_callback
-        print(f"PID gains: Kp={controller.Kp}, Ki={controller.Ki}, Kd={controller.Kd}")
-
-    results = simulate(
-        initial_state, t_span,
-        controller=controller,
-        enable_air_drag=enable_air_drag,
-        observer=observer,
-        noise_std_x=DEFAULT_NOISE_STD_X,
-        noise_std_theta=DEFAULT_NOISE_STD_THETA,
-        target_state=target_state,
-        on_step=on_step
-    )
-
-    t = results['t']
-    states = results['states']
-    control = results['control']
-
-    if len(control) < len(states):
-        control = np.concatenate([[0.0], control])
-
-    # Calculate sprint metrics
-    positions = states[:, 0]
-    theta_deg = np.abs(np.degrees(states[:, 2]))
-
-    # Time to reach target (within tolerance)
-    reached_idx = np.where(np.abs(positions - SPRINT_TARGET) < SPRINT_POSITION_TOLERANCE)[0]
-    time_to_target = t[reached_idx[0]] if len(reached_idx) > 0 else None
-
-    # Final position error
-    final_position = positions[-1]
-    final_error = abs(final_position - SPRINT_TARGET)
-
-    # Max angle deviation
-    max_angle = theta_deg.max()
-
-    # Did it fall?
-    fell = max_angle > 90.0
-
-    # Final velocity (should be near zero if stopped)
-    final_velocity = abs(states[-1, 1])
-
-    # Max control force used
-    max_force = np.max(np.abs(control))
-
-    # Print results
-    print(f"\nResults:")
-    if fell:
-        print(f"  Status: FAILED - Pendulum fell over")
-    else:
-        if time_to_target:
-            print(f"  Time to reach {SPRINT_TARGET}m: {time_to_target:.2f}s")
-        else:
-            print(f"  Time to reach {SPRINT_TARGET}m: Did not reach target")
-        print(f"  Final position: {final_position:.3f}m (error: {final_error:.3f}m)")
-        print(f"  Final velocity: {final_velocity:.3f}m/s")
-        print(f"  Max angle deviation: {max_angle:.2f}°")
-        print(f"  Max control force: {max_force:.2f}N")
-        if final_error < SPRINT_POSITION_TOLERANCE and final_velocity < 0.1:
-            print(f"  Status: SUCCESS")
-        else:
-            print(f"  Status: PARTIAL - reached but not settled")
-
-    # Save results
-    data_dir = Path(__file__).parent / "data"
-    drag_str = "drag" if enable_air_drag else "nodrag"
-    obs_str = "obs" if use_observer else "perfect"
-    filename = f"sprint_{controller_type}_{drag_str}_{obs_str}.csv"
-    save_results(data_dir / filename, t, states, control)
-
-    # Generate plots
-    plots_dir = Path(__file__).parent / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
-
-    title_suffix = f" - Sprint ({controller_type.upper()})"
-    fig1 = plot_time_series(t, states, control=control, title_suffix=title_suffix)
-    fig1.savefig(plots_dir / filename.replace('.csv', '_timeseries.png'), dpi=150, bbox_inches='tight')
-
-    fig2 = plot_phase_portrait(states, title_suffix=title_suffix)
-    fig2.savefig(plots_dir / filename.replace('.csv', '_phase.png'), dpi=150, bbox_inches='tight')
-
-    plt.close('all')
-
-    # Show animation
-    title = f"Sprint: {controller_type.upper()} to {SPRINT_TARGET}m"
-    if not enable_air_drag:
-        title += " (no drag)"
-    if use_observer:
-        title += " (with observer)"
-
-    animate_from_arrays(
-        t, states, title=title,
-        controller=controller if show_textboxes else None,
-        observer=observer if show_textboxes else None,
-        show_textboxes=show_textboxes,
-        initial_state=initial_state,
-        t_span=t_span,
-        enable_air_drag=enable_air_drag,
-        control=control,
-        noise_std_x=DEFAULT_NOISE_STD_X,
-        noise_std_theta=DEFAULT_NOISE_STD_THETA,
-        xlim=(-1, 3),  # Sprint window: -1m to 3m
-        interval=20, skip_frames=2
-    )
-
     return results
 
 
@@ -388,7 +328,7 @@ def main():
     eval_group = parser.add_mutually_exclusive_group(required=True)
     eval_group.add_argument('-A', action='store_true', help='Eval A: Disturbance rejection')
     eval_group.add_argument('-B', type=float, metavar='ANGLE', help='Eval B: Recovery from angle [deg]')
-    eval_group.add_argument('--sprint', action='store_true', help='Sprint: Reach 2m target while balancing')
+    eval_group.add_argument('-C', '--sprint', action='store_true', help='Eval C: Sprint to 2m target while balancing')
     
     # Controller selection
     parser.add_argument('--controller', type=str, required=True, choices=['lqr', 'pid', 'pole'],
@@ -411,32 +351,27 @@ def main():
     if args.poles is not None:
         poles = [complex(p.strip()) for p in args.poles.split(',')]
     
-    # Determine evaluation type and run
-    if args.sprint:
-        run_sprint(
-            controller_type=args.controller,
-            enable_air_drag=not args.no_drag,
-            show_textboxes=not args.no_textboxes,
-            poles=poles,
-            use_observer=not args.no_observer
-        )
-    else:
-        if args.A:
-            eval_type = 'A'
-            test_id = None
-        else:
-            eval_type = 'B'
-            test_id = args.B
+    # Determine evaluation type
+    if args.A:
+        eval_type = 'A'
+        test_id = None
+    elif args.B:
+        eval_type = 'B'
+        test_id = args.B
+    elif args.sprint:
+        eval_type = 'C'
+        test_id = None
 
-        run_evaluation(
-            eval_type=eval_type,
-            test_id=test_id,
-            controller_type=args.controller,
-            enable_air_drag=not args.no_drag,
-            show_textboxes=not args.no_textboxes,
-            poles=poles,
-            use_observer=not args.no_observer
-        )
+    # Run evaluation
+    run_evaluation(
+        eval_type=eval_type,
+        test_id=test_id,
+        controller_type=args.controller,
+        enable_air_drag=not args.no_drag,
+        show_textboxes=not args.no_textboxes,
+        poles=poles,
+        use_observer=not args.no_observer
+    )
 
 
 if __name__ == "__main__":

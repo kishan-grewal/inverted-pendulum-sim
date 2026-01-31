@@ -42,6 +42,8 @@ def simulate(initial_state, t_span, dt=DEFAULT_DT, controller=None, enable_air_d
         disturbances: list of (time, cart_impulse, angular_impulse) tuples
                      cart_impulse changes cart velocity [N·s]
                      angular_impulse changes angular velocity [N·s·m]
+        target_state: optional target state for tracking control [x, x_dot, theta, theta_dot]
+        on_step: optional callback function(controller, state, t) called each timestep
     
     Returns:
         dict with keys: 't', 'states', 'control', and optionally 'estimates', 'measurements'
