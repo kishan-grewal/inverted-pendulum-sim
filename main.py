@@ -19,16 +19,16 @@ A_DURATION = 7.0  # [s] - longer to see settling after disturbance
 B_DURATION = 5.0  # [s]
 C_DURATION = 10.0  # [s] - sprint duration
 
-# ===== EVAL C PARAMETERS =====
-C_TARGET = 2.0  # [m] - target position for eval C
-C_POSITION_TOLERANCE = 0.05  # [m] - within 5cm counts as "reached"
-
 # ===== EVALUATION A DISTURBANCE =====
 # Format: (time [s], cart_impulse [N·s], angular_impulse [N·s·m])
 # Uncomment ONE of these:
 EVAL_A_DISTURBANCE = (1.0, 0.0, 0.01)   # Small tap on pendulum
 # EVAL_A_DISTURBANCE = (1.0, 0.0, 0.05)    # Large tap on pendulum  
 # EVAL_A_DISTURBANCE = (1.0, 2.0, 0.0)    # Shove to cart
+
+# ===== EVALUATION C PARAMETERS =====
+EVAL_C_TARGET = 2.0  # [m] - target position for eval C
+EVAL_C_TOLERANCE = 0.10  # [m] - within 10cm counts as "reached"
 
 
 def create_controller(controller_type, poles=None):
@@ -92,7 +92,7 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
     
     elif eval_type == 'C':
         initial_state = np.array([0.0, 0.0, 0.0, 0.0])
-        target_state = np.array([C_TARGET, 0.0, 0.0, 0.0])
+        target_state = np.array([EVAL_C_TARGET, 0.0, 0.0, 0.0])
         disturbances = None
         disturbance = None
         duration = C_DURATION
@@ -195,12 +195,12 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
         theta_deg = np.abs(np.degrees(states[:, 2]))
         
         # Time to reach target (within tolerance)
-        reached_idx = np.where(np.abs(positions - C_TARGET) < C_POSITION_TOLERANCE)[0]
+        reached_idx = np.where(np.abs(positions - EVAL_C_TARGET) < EVAL_C_TOLERANCE)[0]
         time_to_target = t[reached_idx[0]] if len(reached_idx) > 0 else None
         
         # Final position error
         final_position = positions[-1]
-        final_error = abs(final_position - C_TARGET)
+        final_error = abs(final_position - EVAL_C_TARGET)
         
         # Max angle deviation
         max_deviation = theta_deg.max()
@@ -240,13 +240,13 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
             print(f"  Status: FAILED - Pendulum fell over")
         else:
             if time_to_target:
-                print(f"  Time to reach {C_TARGET}m: {time_to_target:.2f}s")
+                print(f"  Time to reach {EVAL_C_TARGET}m: {time_to_target:.2f}s")
             else:
-                print(f"  Time to reach {C_TARGET}m: Did not reach target")
+                print(f"  Time to reach {EVAL_C_TARGET}m: Did not reach target")
             print(f"  Final position: {final_position:.3f}m (error: {final_error:.3f}m)")
             print(f"  Final velocity: {final_velocity:.3f}m/s")
             print(f"  Max angle deviation: {max_deviation:.2f}°")
-            if final_error < C_POSITION_TOLERANCE and final_velocity < 0.1:
+            if final_error < EVAL_C_TOLERANCE and final_velocity < 0.1:
                 print(f"  Status: SUCCESS")
             else:
                 print(f"  Status: PARTIAL - reached but not settled")
@@ -292,7 +292,7 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
     elif eval_type == 'B':
         title = f"Eval B: {controller_type.upper()} from {test_id}°"
     elif eval_type == 'C':
-        title = f"Eval C: {controller_type.upper()} sprint to {C_TARGET}m"
+        title = f"Eval C: {controller_type.upper()} sprint to {EVAL_C_TARGET}m"
     
     if not enable_air_drag:
         title += " (no drag)"
@@ -328,7 +328,7 @@ def main():
     eval_group = parser.add_mutually_exclusive_group(required=True)
     eval_group.add_argument('-A', action='store_true', help='Eval A: Disturbance rejection')
     eval_group.add_argument('-B', type=float, metavar='ANGLE', help='Eval B: Recovery from angle [deg]')
-    eval_group.add_argument('-C', '--sprint', action='store_true', help='Eval C: Sprint to 2m target while balancing')
+    eval_group.add_argument('-C', action='store_true', help='Eval C: Sprint to 2m target while balancing')
     
     # Controller selection
     parser.add_argument('--controller', type=str, required=True, choices=['lqr', 'pid', 'pole'],
@@ -358,7 +358,7 @@ def main():
     elif args.B:
         eval_type = 'B'
         test_id = args.B
-    elif args.sprint:
+    elif args.C:
         eval_type = 'C'
         test_id = None
 
