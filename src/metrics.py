@@ -5,7 +5,7 @@ from scipy.signal import butter, filtfilt
 # ABSOLUTE ANGLE SETTLING CRITERION
 SETTLING_TOLERANCE_DEG = 1.0  # degrees
 SETTLING_DURATION = 1.0  # seconds
-FILTER_CUTOFF_HZ = 5.0  # Hz
+FILTER_CUTOFF_HZ = 10.0  # Hz
 
 
 def calculate_settling_time(t, theta_deg, initial_deviation, 

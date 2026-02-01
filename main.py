@@ -24,7 +24,7 @@ C_DURATION = 10.0  # [s] - sprint duration
 # Format: (time [s], cart_impulse [N·s], angular_impulse [N·s·m])
 # Uncomment ONE of these:
 EVAL_A_DISTURBANCE = (1.0, 0.0, 0.01)   # Small tap on pendulum
-# EVAL_A_DISTURBANCE = (1.0, 0.0, 0.05)    # Large tap on pendulum  
+# EVAL_A_DISTURBANCE = (1.0, 0.0, 0.03)    # Large tap on pendulum  
 # EVAL_A_DISTURBANCE = (1.0, 2.0, 0.0)    # Shove to cart
 
 # ===== EVALUATION C PARAMETERS =====
