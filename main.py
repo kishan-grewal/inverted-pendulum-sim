@@ -9,6 +9,7 @@ from src.observers import LuenbergerObserver, DEFAULT_OBSERVER_POLES
 from src.simulation import simulate, DEFAULT_NOISE_STD_X, DEFAULT_NOISE_STD_THETA
 from src.visualisation import animate_from_arrays
 from src.plots import plot_time_series, plot_phase_portrait
+from src.metrics import calculate_settling_time, filter_angle_signal
 
 
 # ===== SYSTEM CONSTRAINTS =====
@@ -161,32 +162,35 @@ def run_evaluation(eval_type, test_id, controller_type, enable_air_drag=True,
         theta_after = np.abs(np.degrees(states[dist_idx:, 2]))
         max_deviation = theta_after.max()
         
-        # Settling time: within ±1° for 0.5s
-        settling_idx = None
-        for i in range(len(theta_after) - 50):
-            if np.all(theta_after[i:i+50] < 1.0):
-                settling_idx = i
-                break
+        # Settling time with filtered signal
+        settling_time = calculate_settling_time(
+            t, 
+            np.degrees(states[:, 2]),
+            initial_deviation=max_deviation,
+            disturbance_time=disturbance_time
+        )
         
-        settling_time = t[dist_idx + settling_idx] - disturbance_time if settling_idx else None
         fell = np.any(theta_after > 90.0)
         
     elif eval_type == 'B':
         max_deviation = np.abs(test_id)
         
-        # Check stabilization
-        final_theta_deg = np.abs(np.degrees(states[-100:, 2]))
-        stabilised = np.all(final_theta_deg < 1.0)
+        # Filter signal for checks
+        theta_deg_full = np.degrees(states[:, 2])
+        theta_filtered = filter_angle_signal(t, theta_deg_full)
         
-        # Settling time: within ±0.5° for 0.5s
-        theta_deg = np.abs(np.degrees(states[:, 2]))
-        settling_idx = None
-        for i in range(len(theta_deg) - 50):
-            if np.all(theta_deg[i:i+50] < 0.5):
-                settling_idx = i
-                break
+        # Check stabilization: final 1 second within 1°
+        final_theta_filtered = np.abs(theta_filtered[-100:])
+        stabilised = np.all(final_theta_filtered < 1.0)
         
-        settling_time = t[settling_idx] if settling_idx else None
+        # Settling time
+        settling_time = calculate_settling_time(
+            t,
+            theta_deg_full,
+            initial_deviation=max_deviation,
+            disturbance_time=0.0
+        )
+        
         fell = False
     
     elif eval_type == 'C':

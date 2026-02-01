@@ -74,6 +74,11 @@ class LQRController:
         self.Q = Q
         self.R = R
         self.closed_loop_poles = E
+
+        # print(self.K)
+        # print(self.Q)
+        # print(self.R)
+        # print(self.closed_loop_poles)
         
         self._energy_weights = {
             'q_x': q_x,
