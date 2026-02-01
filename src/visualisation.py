@@ -120,6 +120,7 @@ class CartPendulumAnimator:
 
         self._setup_axes()
         self._setup_artists()
+        plt.get_current_fig_manager().full_screen_toggle()
     
     def _setup_textboxes(self):
         """Create textboxes based on controller type and observer."""

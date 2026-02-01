@@ -16,9 +16,9 @@ from src.metrics import calculate_settling_time, filter_angle_signal
 FORCE_LIMITS = (-15.0, 15.0)  # [N]
 
 # ===== SIMULATION DURATIONS =====
-A_DURATION = 7.0  # [s] - longer to see settling after disturbance
+A_DURATION = 5.0  # [s]
 B_DURATION = 5.0  # [s]
-C_DURATION = 10.0  # [s] - sprint duration
+C_DURATION = 5.0  # [s]
 
 # ===== EVALUATION A DISTURBANCE =====
 # Format: (time [s], cart_impulse [N·s], angular_impulse [N·s·m])
